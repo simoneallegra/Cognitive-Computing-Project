@@ -1,0 +1,116 @@
+{
+  "comparison": [
+    {
+      "label": "baseline_zero_shot_distilgpt2",
+      "perplexity": 30.90626011025753,
+      "avg_grounding_score": 0.0,
+      "avg_rouge_l": 0.0
+    },
+    {
+      "label": "legacy_finetuned_no_context",
+      "perplexity": 1.8402701021413865,
+      "avg_grounding_score": 0.1854252854988149,
+      "avg_rouge_l": 0.17016434425937305
+    },
+    {
+      "label": "finetuned_context_grounded (final tool model)",
+      "perplexity": 1.2672826070476737,
+      "avg_grounding_score": 0.3489694925861275,
+      "avg_rouge_l": 0.4947224336217657
+    }
+  ],
+  "failure_cases": [
+    {
+      "topic": "San Pedro de Atacama",
+      "post_type": "review",
+      "facts": [
+        "City: San Pedro de Atacama, south_america, Chile",
+        "Description: Endless desert vistas meet surreal landscapes, where clear night skies reveal a tapestry of stars, creating an otherworldly sense of tranquility and wonder.",
+        "Ideal durations: [\"One week\",\"Short trip\"]",
+        "Budget level: Mid-range",
+        "culture: 3/5",
+        "adventure: 5/5",
+        "nature: 5/5",
+        "beaches: 1/5",
+        "nightlife: 2/5",
+        "cuisine: 3/5",
+        "wellness: 3/5",
+        "urban: 2/5",
+        "seclusion: 5/5"
+      ],
+      "generated": "San Pedro de Atacama, south_america \u2014 Chile\n\nEndless desert vistas meet surreal landscapes, where clear night skies reveal a tapestry of stars, creating an otherworldly sense of tranquility and wonder.\n\nArriving in San Pedro de Atacama means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The food scene is rich, with traditional dishes and quality venues.\n\nFor those seeking excitement and movement, San Pedro de Atacama delivers: Adventure lovers will find plenty to do, between trails and dynamic activities. Nature is the absolute protagonist here, with views that take your breath away. Rounding things",
+      "reference": "San Pedro de Atacama, south_america \u2014 Chile\n\nEndless desert vistas meet surreal landscapes, where clear night skies reveal a tapestry of stars, creating an otherworldly sense of tranquility and wonder.\n\nArriving in San Pedro de Atacama means stepping into a destination that speaks for itself. Museums, monuments and local traditions offer a solid taste of cultural identity. The local cuisine is tasty and well worth trying.\n\nFor those seeking excitement and movement, San Pedro de Atacama delivers: For adrenaline junkies, San Pedro de Atacama is a true open-air playground, packed with activities and intense experiences. Nature is the absolute protagonist here, with views that take your breath away. Rounding things out, anyone dreaming of beaches and sea will be disappointed.\n\nWhen the sun goes down, the city changes face. There are a few venues open, but the atmosphere stays quiet. For those who prefer a slower pace instead, there's no shortage of chances to enjoy some relaxation and wellness.\n\nFrom an architectural and social standpoint, the urban fabric is minimal, almost peripheral. For anyone wanting true seclusion, far from everything and everyone, this is the place.\n\nIn practical terms, San Pedro de Atacama works well for a One week or Short trip type of trip, with a \"Mid-range\" budget level.\n\nIn short: San Pedro de Atacama stands out above all for adventure and nature, making it a destination well worth considering for your next trip.",
+      "grounding_score": 0.30364372469635625,
+      "rouge_l": 0.4425287356321839
+    },
+    {
+      "topic": "Koh Lanta",
+      "post_type": "review",
+      "facts": [
+        "City: Koh Lanta, asia, Thailand",
+        "Description: Golden beaches, gentle waves, and lush greenery create a serene escape where you can unwind and soak in the tranquil island vibe.",
+        "Ideal durations: [\"Weekend\",\"One week\",\"Short trip\"]",
+        "Budget level: Budget",
+        "culture: 3/5",
+        "adventure: 4/5",
+        "nature: 4/5",
+        "beaches: 5/5",
+        "nightlife: 3/5",
+        "cuisine: 4/5",
+        "wellness: 4/5",
+        "urban: 2/5",
+        "seclusion: 4/5"
+      ],
+      "generated": "Koh Lanta, asia \u2014 Thailand\n\nGolden beaches, gentle waves, and lush greenery create a serene escape where you can unwind and soak in the tranquil island vibe.\n\nArriving in Koh Lanta means stepping into a destination that speaks for itself. Koh Lanta is a concentrate of history, art and identity: every street tells a story, and the cultural heritage is simply overwhelming. The food scene is rich, with traditional dishes and quality venues.\n\nFor those seeking excitement and movement, Koh Lanta delivers: Hiking and outdoor activities are not in short supply for those who want to get moving. The surrounding nature offers pleasant views and the occasional surprise. Rounding things out, anyone dreaming of beaches",
+      "reference": "Koh Lanta, asia \u2014 Thailand\n\nGolden beaches, gentle waves, and lush greenery create a serene escape where you can unwind and soak in the tranquil island vibe.\n\nArriving in Koh Lanta means stepping into a destination that speaks for itself. Museums, monuments and local traditions offer a solid taste of cultural identity. The food scene is rich, with traditional dishes and quality venues.\n\nFor those seeking excitement and movement, Koh Lanta delivers: Adventure lovers will find plenty to do, between trails and dynamic activities. The natural landscapes are one of the best reasons to visit this area. Rounding things out, the beaches are simply postcard-perfect, among the most spectacular in the region.\n\nWhen the sun goes down, the city changes face. Bars and venues bring the evenings to life in a discreet but pleasant way. For those who prefer a slower pace instead, spas, wellness centers and a slower pace make the stay truly rejuvenating.\n\nFrom an architectural and social standpoint, the urban fabric is minimal, almost peripheral. Those seeking tranquility will find several secluded, uncrowded spots.\n\nIn practical terms, Koh Lanta works well for a Weekend, One week or Short trip type of trip, with a \"Budget\" budget level.\n\nIn short: Koh Lanta stands out above all for the beaches and adventure, making it a destination well worth considering for your next trip.",
+      "grounding_score": 0.31001221001221,
+      "rouge_l": 0.43786982248520717
+    },
+    {
+      "topic": "Siem Reap",
+      "post_type": "review",
+      "facts": [
+        "City: Siem Reap, asia, Cambodia",
+        "Description: Ancient temples rise through the jungle mist, while bustling markets and vibrant street food create a lively, sensory-rich experience.",
+        "Ideal durations: [\"Short trip\",\"Weekend\",\"One week\"]",
+        "Budget level: Budget",
+        "culture: 5/5",
+        "adventure: 3/5",
+        "nature: 4/5",
+        "beaches: 1/5",
+        "nightlife: 3/5",
+        "cuisine: 4/5",
+        "wellness: 3/5",
+        "urban: 3/5",
+        "seclusion: 3/5"
+      ],
+      "generated": "Siem Reap, asia \u2014 Cambodia\n\nAncient temples rise through the jungle mist, while bustling markets and vibrant street food create a lively, sensory-rich experience.\n\nArriving in Siem Reap means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The food scene is rich, with traditional dishes and quality venues.\n\nFor those seeking excitement and movement, Siem Reap delivers: Adventure lovers will find plenty to do, between trails and dynamic activities. Nature is the absolute protagonist here, with views that take your breath away. Rounding things out, the beaches are among the most beautiful you could wish for in the area.\n",
+      "reference": "Siem Reap, asia \u2014 Cambodia\n\nAncient temples rise through the jungle mist, while bustling markets and vibrant street food create a lively, sensory-rich experience.\n\nArriving in Siem Reap means stepping into a destination that speaks for itself. Siem Reap is a concentrate of history, art and identity: every street tells a story, and the cultural heritage is simply overwhelming. The food scene is rich, with traditional dishes and quality venues.\n\nFor those seeking excitement and movement, Siem Reap delivers: Hiking and outdoor activities are not in short supply for those who want to get moving. The natural landscapes are one of the best reasons to visit this area. Rounding things out, anyone dreaming of beaches and sea will be disappointed.\n\nWhen the sun goes down, the city changes face. Bars and venues bring the evenings to life in a discreet but pleasant way. For those who prefer a slower pace instead, there's no shortage of chances to enjoy some relaxation and wellness.\n\nFrom an architectural and social standpoint, the city offers a good balance between urban life and quieter spaces. It's possible to carve out pockets of peace away from the crowds.\n\nIn practical terms, Siem Reap works well for a Short trip, Weekend or One week type of trip, with a \"Budget\" budget level.\n\nIn short: Siem Reap stands out above all for culture and nature, making it a destination well worth considering for your next trip.",
+      "grounding_score": 0.3803418803418804,
+      "rouge_l": 0.4056338028169014
+    }
+  ],
+  "best_example": {
+    "topic": "Nicosia",
+    "post_type": "review",
+    "facts": [
+      "City: Nicosia, europe, Cyprus",
+      "Description: Wander through leafy streets where ancient history meets modern life, with a vibrant caf\u00e9 culture and a warm, welcoming atmosphere.",
+      "Ideal durations: [\"One week\",\"Short trip\",\"Weekend\"]",
+      "Budget level: Mid-range",
+      "culture: 4/5",
+      "adventure: 3/5",
+      "nature: 3/5",
+      "beaches: 2/5",
+      "nightlife: 3/5",
+      "cuisine: 4/5",
+      "wellness: 3/5",
+      "urban: 4/5",
+      "seclusion: 2/5"
+    ],
+    "generated": "Nicosia, europe \u2014 Cyprus\n\nWander through leafy streets where ancient history meets modern life, with a vibrant caf\u00e9 culture and a warm, welcoming atmosphere.\n\nArriving in Nicosia means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The food scene is rich, with traditional dishes and quality venues.\n\nFor those seeking excitement and movement, Nicosia delivers: Adventure lovers will find plenty to do, between trails and dynamic activities. Nature is the absolute protagonist here, with views that take your breath away. Rounding things out, the beaches are among the most beautiful you could wish for in the area.\n",
+    "reference": "Nicosia, europe \u2014 Cyprus\n\nWander through leafy streets where ancient history meets modern life, with a vibrant caf\u00e9 culture and a warm, welcoming atmosphere.\n\nArriving in Nicosia means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The food scene is rich, with traditional dishes and quality venues.\n\nFor those seeking excitement and movement, Nicosia delivers: Hiking and outdoor activities are not in short supply for those who want to get moving. The surrounding nature offers pleasant views and the occasional surprise. Rounding things out, there are beaches, but they're not the reason to come here.\n\nWhen the sun goes down, the city changes face. Bars and venues bring the evenings to life in a discreet but pleasant way. For those who prefer a slower pace instead, there's no shortage of chances to enjoy some relaxation and wellness.\n\nFrom an architectural and social standpoint, metropolitan energy is strongly felt, between skyscrapers, traffic and city rhythms. Quieter spots do exist, but they're hard to find.\n\nIn practical terms, Nicosia works well for a One week, Short trip or Weekend type of trip, with a \"Mid-range\" budget level.\n\nIn short: Nicosia stands out above all for culture and the cuisine, making it a destination well worth considering for your next trip.",
+    "grounding_score": 0.4570135746606335,
+    "rouge_l": 0.4837758112094395
+  }
+}

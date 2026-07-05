@@ -1,0 +1,35 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Runtime binaries (JDK, Neo4j Community, DB data/logs) - scaricati da runtime/start_neo4j.sh
+runtime/jdk17/
+runtime/neo4j-community-5.26.0/
+runtime/neo4j.log
+
+# Modelli, indici e dataset generati/rigenerabili
+finetuning/saved_models/
+finetuning/data/
+finetuning/results/tmp_sweep/
+finetuning/results/tmp_baseline/
+rag/faiss_index/
+
+# Log di run (rigenerabili, non necessari nel repo)
+results/run_logs/
