@@ -32,17 +32,19 @@ def draft_with_finetuned_model(
     prompt = f"Facts:\n{facts_block}\n\nTopic: {topic}\nTask: {instruction}"
     full_prompt = f"<PROMPT>\n{prompt}\n<RESP>\n"
 
-    output = generator(
+    output = generator.invoke(
         full_prompt,
-        max_new_tokens=max_new_tokens,
-        min_new_tokens=min(180, max_new_tokens),
-        do_sample=True,
-        top_k=50,
-        temperature=0.8,
-        repetition_penalty=1.3,
-        no_repeat_ngram_size=3,
-        pad_token_id=tokenizer.pad_token_id,
-    )[0]["generated_text"]
+        pipeline_kwargs={
+            "max_new_tokens": max_new_tokens,
+            "min_new_tokens": min(180, max_new_tokens),
+            "do_sample": True,
+            "top_k": 50,
+            "temperature": 0.8,
+            "repetition_penalty": 1.3,
+            "no_repeat_ngram_size": 3,
+            "pad_token_id": tokenizer.pad_token_id,
+        },
+    )
 
     return output[len(full_prompt):].strip()
 

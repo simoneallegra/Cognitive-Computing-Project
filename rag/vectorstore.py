@@ -12,6 +12,7 @@ from functools import lru_cache
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_huggingface import HuggingFaceEmbeddings
 
 import config
@@ -28,8 +29,11 @@ def build_index(documents: list[Document]) -> FAISS | None:
     return FAISS.from_documents(documents, get_embeddings())
 
 
-def similarity_search(index: FAISS, query: str, k: int = 4) -> list[Document]:
-    return index.similarity_search(query, k=k)
+def get_retriever(index: FAISS, k: int = 4) -> VectorStoreRetriever:
+    """Espone l'indice come retriever LangChain standard (`as_retriever`),
+    cosi' il resto della pipeline lo invoca con `retriever.invoke(query)`
+    invece di chiamare direttamente `index.similarity_search(...)`."""
+    return index.as_retriever(search_kwargs={"k": k})
 
 
 if __name__ == "__main__":
@@ -42,5 +46,5 @@ if __name__ == "__main__":
         Document(page_content="Bali has many vegan-friendly beachfront resorts.", metadata={"source_url": "c"}),
     ]
     index = build_index(docs)
-    results = similarity_search(index, "mountains for hiking", k=1)
+    results = get_retriever(index, k=1).invoke("mountains for hiking")
     print("Query: 'mountains for hiking' ->", results[0].page_content, f"(source={results[0].metadata['source_url']})")

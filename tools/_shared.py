@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 import torch
+from langchain_huggingface import HuggingFacePipeline
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 import config
@@ -35,7 +36,11 @@ def get_finetuned_generator():
     model.config.pad_token_id = tokenizer.pad_token_id
 
     device = 0 if torch.cuda.is_available() else -1
-    generator = pipeline("text-generation", model=model, tokenizer=tokenizer, device=device)
+    hf_pipe = pipeline("text-generation", model=model, tokenizer=tokenizer, device=device)
+    # Wrappato nell'astrazione LangChain `HuggingFacePipeline` invece di
+    # usare la pipeline transformers grezza: stesso modello/generazione,
+    # ma invocabile con la stessa interfaccia .invoke() del resto del progetto.
+    generator = HuggingFacePipeline(pipeline=hf_pipe)
     return generator, tokenizer
 
 

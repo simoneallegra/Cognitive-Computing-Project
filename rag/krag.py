@@ -14,7 +14,7 @@ from langchain_core.documents import Document
 from rag.chunking import chunk_text
 from rag.fetch import domain_of, fetch_and_clean
 from rag.search import search_web
-from rag.vectorstore import build_index, similarity_search
+from rag.vectorstore import build_index, get_retriever
 
 
 def expand_query(query: str, topic: str | None, kg: Any | None) -> str:
@@ -67,7 +67,7 @@ def retrieve_with_citations(
     if index is None:
         return []
 
-    retrieved = similarity_search(index, query, k=k)
+    retrieved = get_retriever(index, k=k).invoke(query)
     return [
         {
             "text": doc.page_content,

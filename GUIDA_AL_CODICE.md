@@ -237,7 +237,7 @@ FINETUNE_BASE_MODEL = "distilgpt2"
 
 # dominio del blog
 BLOG_DOMAIN = "travel blogging"
-POST_TYPES = ["how_to", "review", "ranking", "news_or_event"]
+POST_TYPES = ["how_to", "review", "ranking"]
 TOPIC_CATEGORIES = [
     "culture", "adventure", "nature", "beaches", "nightlife",
     "cuisine", "wellness", "urban", "seclusion",
@@ -458,7 +458,8 @@ def get_finetuned_generator():
         raise FileNotFoundError(...)
     tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
     ...
-    generator = pipeline("text-generation", model=model, tokenizer=tokenizer, device=device)
+    hf_pipe = pipeline("text-generation", model=model, tokenizer=tokenizer, device=device)
+    generator = HuggingFacePipeline(pipeline=hf_pipe)  # wrapper LangChain
     return generator, tokenizer
 ```
 Due tecniche diverse per lo stesso obiettivo (non ricreare risorse costose
@@ -470,6 +471,15 @@ ad ogni chiamata):
   cache, le chiamate successive (con gli stessi argomenti — qui nessuno)
   ritornano il valore cachato senza rieseguire nulla. Utile perché caricare
   un modello su GPU richiede secondi/minuti.
+
+La pipeline `transformers` grezza viene incapsulata in
+`langchain_huggingface.HuggingFacePipeline`: stesso modello, stessa
+generazione, ma esposta con l'interfaccia standard `.invoke(prompt,
+pipeline_kwargs={...})` invece di essere chiamata come funzione — è la
+stessa astrazione "LLM" di LangChain usata per wrappare modelli locali
+nel notebook di riferimento sul RAG (dove il caso è invece un chat model,
+quindi serve anche `ChatHuggingFace`; qui il modello fine-tuned è un
+semplice completatore di testo, quindi basta `HuggingFacePipeline`).
 
 ### I cinque tool, in ordine di utilizzo tipico nel ciclo ReAct
 
@@ -563,19 +573,29 @@ _TASK_INSTRUCTION = {
     "review": "Write a travel review blog post using ONLY the facts above.",
     "how_to": "Write a 'how to spend your time' travel guide post using ONLY the facts above.",
     "ranking": "Write a 'Top cities' ranking blog post using ONLY the facts above.",
-    "news_or_event": "Write a short travel news/event blog post using ONLY the facts above.",
 }
 
 @tool
-def draft_with_finetuned_model(topic, post_type, facts, max_new_tokens=220):
+def draft_with_finetuned_model(topic, post_type, facts, max_new_tokens=380):
     generator, tokenizer = get_finetuned_generator()
     instruction = _TASK_INSTRUCTION.get(post_type, _TASK_INSTRUCTION["review"])
     facts_block = "\n".join(facts) if facts else "(no facts provided)"
     prompt = f"Facts:\n{facts_block}\n\nTopic: {topic}\nTask: {instruction}"
     full_prompt = f"<PROMPT>\n{prompt}\n<RESP>\n"
 
-    output = generator(full_prompt, max_new_tokens=max_new_tokens, do_sample=True,
-                        top_k=50, temperature=0.8, pad_token_id=tokenizer.pad_token_id)[0]["generated_text"]
+    output = generator.invoke(
+        full_prompt,
+        pipeline_kwargs={
+            "max_new_tokens": max_new_tokens,
+            "min_new_tokens": min(180, max_new_tokens),
+            "do_sample": True,
+            "top_k": 50,
+            "temperature": 0.8,
+            "repetition_penalty": 1.3,
+            "no_repeat_ngram_size": 3,
+            "pad_token_id": tokenizer.pad_token_id,
+        },
+    )
     return output[len(full_prompt):].strip()
 ```
 Costruisce un prompt **nello stesso formato esatto** usato in fase di
@@ -583,7 +603,12 @@ training (`<PROMPT>\n...\n<RESP>\n`, Step 10) — coerenza tra come il
 modello è stato allenato e come viene usato in produzione è cruciale per
 un modello piccolo come distilgpt2. `output[len(full_prompt):]` scarta il
 prompt dall'output generato (il modello, essendo un semplice
-"continuatore" di testo, restituisce prompt+completamento insieme).
+"continuatore" di testo, restituisce prompt+completamento insieme, e
+`HuggingFacePipeline` di default non toglie il prompt automaticamente).
+I parametri di generazione (temperatura, `repetition_penalty`,
+`no_repeat_ngram_size`...) passano ora come `pipeline_kwargs=`, l'unico
+punto di ingresso che `HuggingFacePipeline._generate` inoltra alla
+pipeline `transformers` sottostante.
 
 **Verifica la comprensione:**
 - Perché `update_knowledge_graph` non ha il decoratore `@tool` mentre gli
@@ -669,8 +694,8 @@ def build_index(documents):
         return None
     return FAISS.from_documents(documents, get_embeddings())
 
-def similarity_search(index, query, k=4):
-    return index.similarity_search(query, k=k)
+def get_retriever(index, k=4) -> VectorStoreRetriever:
+    return index.as_retriever(search_kwargs={"k": k})
 ```
 Il modello di embedding (`sentence-transformers/all-MiniLM-L6-v2`) viene
 caricato una sola volta (`lru_cache`). L'indice FAISS invece viene
@@ -678,6 +703,11 @@ ricostruito **da zero ad ogni retrieval**: come spiega il docstring del
 file, non ha senso persisterlo tra sessioni diverse, perché le fonti sono
 pagine web recuperate di volta in volta dal Search tool — persistere un
 indice basato su ricerche passate lo renderebbe presto obsoleto.
+Il retrieval avviene tramite `index.as_retriever(...)`, l'astrazione
+standard `VectorStoreRetriever` di LangChain (invocabile con
+`.invoke(query)`), invece di chiamare direttamente
+`index.similarity_search(...)`: stesso risultato, ma nella forma
+"retriever" usata anche nelle catene LCEL.
 
 ### `krag.py` — l'orchestratore
 ```python
@@ -710,7 +740,7 @@ def retrieve_with_citations(query, topic=None, kg=None, max_sources=4, k=5):
     index = build_index(documents)
     if index is None:
         return []
-    retrieved = similarity_search(index, query, k=k)
+    retrieved = get_retriever(index, k=k).invoke(query)
     return [{"text": doc.page_content, "source_url": doc.metadata.get("source_url", ""),
              "source_title": doc.metadata.get("source_title", "")} for doc in retrieved]
 ```
@@ -837,21 +867,33 @@ class LocalQwenToolCallingChat(BaseChatModel):
 ### `agent/prompts.py` — i due prompt di sistema
 
 ```python
+PLANNING_PROMPT = ChatPromptTemplate.from_messages(
+    [("system", _PLANNING_SYSTEM_TEXT), ("user", "Plan the posts now.")]
+)
+REACT_PROMPT = ChatPromptTemplate.from_messages([("system", _REACT_SYSTEM_TEXT)])
+
 def build_planning_messages(kg_summary, n_posts):
-    content = PLANNING_SYSTEM_PROMPT.format(
+    return PLANNING_PROMPT.format_messages(
         domain=config.BLOG_DOMAIN, n_posts=n_posts, interval=config.POSTING_INTERVAL_DAYS,
         post_types=", ".join(config.POST_TYPES), categories=", ".join(config.TOPIC_CATEGORIES),
         recent_topics=json.dumps(kg_summary.get("recent_topics", [])),
         coverage_gaps=json.dumps(kg_summary.get("coverage_gaps", [])))
-    return [{"role": "system", "content": content}, {"role": "user", "content": "Plan the posts now."}]
 
 def build_react_system_prompt(topic, post_type, justification):
-    return REACT_SYSTEM_PROMPT.format(domain=config.BLOG_DOMAIN, topic=topic,
-                                        post_type=post_type, justification=justification)
+    return REACT_PROMPT.format_messages(domain=config.BLOG_DOMAIN, topic=topic,
+                                          post_type=post_type, justification=justification)[0].content
 ```
-Sono semplici stringhe Python con placeholder (`{domain}`, `{n_posts}`...)
-riempiti con `.format(...)`. Cose da notare leggendo per intero
-`PLANNING_SYSTEM_PROMPT` e `REACT_SYSTEM_PROMPT` nel file:
+I testi dei due prompt (`_PLANNING_SYSTEM_TEXT`, `_REACT_SYSTEM_TEXT`) sono
+stringhe Python con placeholder (`{domain}`, `{n_posts}`...), ma invece di
+riempirli con `.format(...)` a mano vengono incapsulati in
+`ChatPromptTemplate` (astrazione LangChain per i prompt, § notebook RAG
+introduttivo sezione 6.3): `format_messages(...)` restituisce direttamente
+`BaseMessage` già pronti per `llm.invoke(...)`, invece di dizionari
+`{"role": ..., "content": ...}` da convertire implicitamente. Per il
+prompt ReAct, che al call site (`agent/graph.py`) serve come stringa dentro
+un `SystemMessage`, si prende semplicemente `[0].content` del messaggio
+formattato. Cose da notare leggendo per intero `_PLANNING_SYSTEM_TEXT` e
+`_REACT_SYSTEM_TEXT` nel file:
 
 - Il prompt di planning **obbliga** una risposta JSON (`Respond ONLY with
   a JSON array...`), e specifica regole esplicite: i topic devono essere

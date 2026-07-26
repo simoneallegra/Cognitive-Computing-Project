@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import json
 
+from langchain_core.messages import BaseMessage
+from langchain_core.prompts import ChatPromptTemplate
+
 import config
 
-PLANNING_SYSTEM_PROMPT = """You are the editorial planning assistant of a {domain} blog.
+_PLANNING_SYSTEM_TEXT = """You are the editorial planning assistant of a {domain} blog.
 You plan a sequence of {n_posts} upcoming blog posts (one every {interval} days).
 
 Post types available: {post_types}
@@ -34,7 +37,7 @@ Respond ONLY with a JSON array of exactly {n_posts} objects, each with keys:
 No prose, no markdown fences, just the JSON array.
 """
 
-REACT_SYSTEM_PROMPT = """You are the research-and-drafting agent of a {domain} blog, working on ONE planned post:
+_REACT_SYSTEM_TEXT = """You are the research-and-drafting agent of a {domain} blog, working on ONE planned post:
 - Topic: {topic}
 - Post type: {post_type}
 - Editorial justification: {justification}
@@ -79,9 +82,16 @@ drafting. Always justify why you call a tool, referencing what you still
 need to find out.
 """
 
+# Le stesse system prompt di prima, ma incapsulate nell'astrazione LangChain
+# `ChatPromptTemplate` invece di essere formattate con str.format() a mano.
+PLANNING_PROMPT = ChatPromptTemplate.from_messages(
+    [("system", _PLANNING_SYSTEM_TEXT), ("user", "Plan the posts now.")]
+)
+REACT_PROMPT = ChatPromptTemplate.from_messages([("system", _REACT_SYSTEM_TEXT)])
 
-def build_planning_messages(kg_summary: dict, n_posts: int) -> list[dict[str, str]]:
-    content = PLANNING_SYSTEM_PROMPT.format(
+
+def build_planning_messages(kg_summary: dict, n_posts: int) -> list[BaseMessage]:
+    return PLANNING_PROMPT.format_messages(
         domain=config.BLOG_DOMAIN,
         n_posts=n_posts,
         interval=config.POSTING_INTERVAL_DAYS,
@@ -90,16 +100,15 @@ def build_planning_messages(kg_summary: dict, n_posts: int) -> list[dict[str, st
         recent_topics=json.dumps(kg_summary.get("recent_topics", [])),
         coverage_gaps=json.dumps(kg_summary.get("coverage_gaps", [])),
     )
-    return [{"role": "system", "content": content}, {"role": "user", "content": "Plan the posts now."}]
 
 
 def build_react_system_prompt(topic: str, post_type: str, justification: str) -> str:
-    return REACT_SYSTEM_PROMPT.format(
+    return REACT_PROMPT.format_messages(
         domain=config.BLOG_DOMAIN,
         topic=topic,
         post_type=post_type,
         justification=justification,
-    )
+    )[0].content
 
 
 if __name__ == "__main__":
@@ -108,6 +117,6 @@ if __name__ == "__main__":
     dummy_kg_summary = {"recent_topics": ["Bangkok street food"], "coverage_gaps": ["culture", "beaches"]}
     messages = build_planning_messages(dummy_kg_summary, n_posts=2)
     print("--- planning system prompt ---")
-    print(messages[0]["content"])
+    print(messages[0].content)
     print("\n--- react system prompt ---")
     print(build_react_system_prompt("A weekend in Verona", "review", "covers a gap"))
