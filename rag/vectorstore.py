@@ -1,11 +1,5 @@
-"""Vector store locale (FAISS + sentence-transformers, entrambi gratuiti)
-per la parte di document retrieval del K-RAG.
-
-L'indice e' costruito "on the fly" ad ogni sessione di retrieval (i
-documenti recuperati da internet cambiano ogni volta), non e' persistito
-tra esecuzioni diverse: questo e' coerente con lo scenario, dove le fonti
-sono pagine web aggiornate di volta in volta dal Search tool.
-"""
+"""Vector store locale (FAISS + sentence-transformers) per il retrieval
+del K-RAG. Ricostruito ad ogni sessione, non persistito su disco."""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -30,16 +24,14 @@ def build_index(documents: list[Document]) -> FAISS | None:
 
 
 def get_retriever(index: FAISS, k: int = 4) -> VectorStoreRetriever:
-    """Espone l'indice come retriever LangChain standard (`as_retriever`),
-    cosi' il resto della pipeline lo invoca con `retriever.invoke(query)`
-    invece di chiamare direttamente `index.similarity_search(...)`."""
+    """Espone l'indice come retriever standard di LangChain."""
     return index.as_retriever(search_kwargs={"k": k})
 
 
 if __name__ == "__main__":
     # Debug: `python rag/vectorstore.py` costruisce un indice FAISS su
     # documenti finti e verifica che la similarity search torni quello
-    # semanticamente piu' vicino, senza toccare la rete.
+    # semanticamente piu' vicino, senza toccare la rete
     docs = [
         Document(page_content="The Dolomites are famous for hiking and skiing.", metadata={"source_url": "a"}),
         Document(page_content="Bangkok street food is best explored at night markets.", metadata={"source_url": "b"}),

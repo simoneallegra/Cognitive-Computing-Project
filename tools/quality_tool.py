@@ -1,7 +1,5 @@
-"""Punteggio euristico (niente modello, solo regole) di quanto una risorsa
-trovata su internet sia solida e interessante. Usato dall'agente per
-scartare fonti deboli prima del drafting, e come baseline di paragone per
-il modello fine-tuned."""
+"""Punteggio euristico (solo regole, niente modello) della qualita' di
+una risorsa trovata su internet."""
 from __future__ import annotations
 
 from urllib.parse import urlparse
@@ -50,11 +48,8 @@ def score_resource(text: str, url: str = "") -> tuple[float, list[str]]:
 
 @tool
 def resource_quality_tool(text: str, url: str = "") -> str:
-    """Score a retrieved resource (web page text or snippet) for quality
-    and interestingness on a 0-1 scale, with a short justification. Use
-    this BEFORE drafting, to prefer substantial, recent, trustworthy and
-    interesting resources over generic, short, or low-trust ones when
-    several candidate sources are available."""
+    """Score a retrieved resource for quality/interestingness (0-1), with
+    a short justification. Use before drafting to prefer good sources."""
     score, reasons = score_resource(text, url)
     reason_text = "; ".join(reasons) if reasons else "no strong signals"
     return f"quality_score={score:.2f}; reasons={reason_text}"
@@ -62,7 +57,7 @@ def resource_quality_tool(text: str, url: str = "") -> str:
 
 if __name__ == "__main__":
     # Debug: `python tools/quality_tool.py` prova l'euristica su tre casi
-    # rappresentativi: fonte solida, snippet corto, dominio poco affidabile.
+    # rappresentativi: fonte solida, snippet corto, dominio poco affidabile
     samples = [
         (
             "This hidden gem destination, discovered in 2025, offers a substantial "

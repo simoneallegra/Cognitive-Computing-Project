@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Avvia Neo4j Community Edition usando il JDK 17 portatile scaricato in
-# questa stessa cartella (nessun permesso di root necessario).
+# questa stessa cartella (nessun permesso di root necessario)
 set -euo pipefail
 
 RUNTIME_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

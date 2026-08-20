@@ -1,8 +1,4 @@
-"""Stato condiviso del grafo LangGraph.
-
-Ogni nodo legge/scrive un sottoinsieme di questi campi; LangGraph si
-occupa di propagarlo da uno step al successivo.
-"""
+"""Stato condiviso tra i nodi del grafo LangGraph."""
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal, TypedDict
@@ -77,19 +73,3 @@ class BlogAgentState(TypedDict):
     # --- storico dei post approvati nella sessione ---
     approved_posts: list[Draft]
 
-
-if __name__ == "__main__":
-    # Debug: `python state.py` costruisce uno stato iniziale vuoto (identico
-    # a quello che main.py passa a app.invoke) e ne stampa le chiavi, utile
-    # per verificare a colpo d'occhio che nessun campo di BlogAgentState sia
-    # stato dimenticato quando main.py costruisce initial_state.
-    example: BlogAgentState = {
-        "user_input": "debug", "n_posts": 1, "messages": [],
-        "reasoning_trace": [], "tool_outputs": [], "kg_summary": {},
-        "plan": [], "current_post_idx": 0, "gathered_facts": [],
-        "draft": None, "human_decision": None, "human_feedback": None,
-        "approved_posts": [],
-    }
-    print(f"BlogAgentState ha {len(example)} campi:")
-    for key, value in example.items():
-        print(f"  {key!r:20} -> {value!r}")

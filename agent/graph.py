@@ -1,23 +1,12 @@
-"""Grafo LangGraph dell'agente Blogger Support.
+"""Il grafo LangGraph dell'agente.
 
-Flusso:
-  load_kg_context -> plan_posts -> [ gather_and_draft -> human_review
-                                      -> (reject -> gather_and_draft) | (approve/modify -> update_kg) ] *
-                                    -> (altri post pianificati? -> gather_and_draft | END)
+Flusso: load_kg_context -> plan_posts -> [ gather_and_draft -> human_review
+-> (reject -> gather_and_draft) | (approve/modify -> update_kg) ] per ogni
+post del piano.
 
-`gather_and_draft` implementa internamente il ciclo ReAct (Thought ->
-Action -> Observation) per UN post del piano: usa i tool core (search,
-RAG/K-RAG, Knowledge Graph) e il tool euristico di qualita' per raccogliere
-e verificare i fatti, poi chiama il tool basato sul modello fine-tuned per
-produrre il testo del draft.
-
-Nota sullo stato: `state["messages"]` accumula l'intera traccia conversazionale
-per tracciabilita'/osservabilita', ma OGNI chiamata di `gather_and_draft`
-costruisce un prompt fresco per il post corrente (non rilegge i messaggi dei
-post precedenti): mescolare i tool-output di post diversi nello stesso
-contesto degraderebbe la qualita' del reasoning. Lo stato che e' invece
-genuinamente "usato come input per i passi successivi" e che attraversa
-l'intera sessione e' `kg_summary`, `plan`, `reasoning_trace`, `gathered_facts`.
+`gather_and_draft` fa internamente il ciclo ReAct (Thought/Action/
+Observation) per un post: raccoglie e verifica i fatti con i tool, poi
+genera il testo con il modello fine-tuned.
 """
 from __future__ import annotations
 
@@ -33,13 +22,12 @@ from langgraph.types import interrupt
 import config
 from agent.llm import get_chat_model
 from agent.prompts import build_planning_messages, build_react_system_prompt
-from observability.tracing import log_event
 from state import BlogAgentState
 from tools import REACT_TOOLS, draft_with_finetuned_model, update_knowledge_graph
 from tools._shared import get_kg
 
 TOOLS_BY_NAME = {t.name: t for t in REACT_TOOLS}
-MAX_REACT_STEPS = 8
+MAX_REACT_STEPS = 10
 _CITATION_MARKER = "(source: "
 
 
@@ -57,9 +45,8 @@ def _parse_plan_json(text: str) -> list[dict[str, str]]:
 
 
 def _extract_citations(tool_outputs: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Le righe prodotte da rag_retrieval_tool hanno la forma fissa
-    "[i] (source: URL) testo"; basta cercare il marcatore e prendere
-    quello che sta tra la parentesi e la chiusura successiva."""
+    """Estrae gli URL dalle righe di rag_retrieval_tool, formato
+    "[i] (source: URL) testo"."""
     citations: list[dict[str, str]] = []
     seen: set[str] = set()
     for record in tool_outputs:
@@ -82,21 +69,23 @@ def _extract_citations(tool_outputs: list[dict[str, Any]]) -> list[dict[str, str
 
 # nodi del grafo
 def load_kg_context(state: BlogAgentState) -> dict[str, Any]:
-    """Interroga il KG per capire cosa e' gia' stato pubblicato, cosi' il
-    planning che segue puo' evitare ripetizioni e mirare ai topic scoperti."""
+    """Interroga il KG per sapere cosa e' gia' stato pubblicato."""
     kg = get_kg()
     kg_summary = {
         "recent_topics": kg.get_recent_topics(),
         "coverage_gaps": kg.get_coverage_gaps(config.TOPIC_CATEGORIES),
         **kg.summary(),
     }
-    log_event("load_kg_context", {"kg_summary": kg_summary})
+    print(
+        f"[load_kg_context] KG: {kg_summary['posts']} post, {kg_summary['topics']} topic, "
+        f"{kg_summary['sources']} fonti, {kg_summary['claims']} claim "
+        f"({len(kg_summary['coverage_gaps'])} categorie ancora scoperte)"
+    )
     return {"kg_summary": kg_summary}
 
 
 def plan_posts(state: BlogAgentState) -> dict[str, Any]:
-    """Pianifica una sequenza di post usando il LLM, condizionato dal
-    riassunto del KG."""
+    """Chiede al LLM il piano dei post, basandosi sul riassunto del KG."""
     n_posts = state.get("n_posts", 3)
     llm = get_chat_model()
     messages = build_planning_messages(state["kg_summary"], n_posts)
@@ -125,13 +114,15 @@ def plan_posts(state: BlogAgentState) -> dict[str, Any]:
         for i, item in enumerate(raw_plan[:n_posts])
     ]
 
-    log_event("plan_posts", {"plan": plan})
+    print(f"[plan_posts] piano di {len(plan)} post:")
+    for p in plan:
+        print(f"  - {p['topic']} ({p['post_type']})")
     return {"plan": plan, "current_post_idx": 0}
 
 
 def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
-    """Ciclo ReAct per il post corrente del piano: raccoglie e verifica
-    fatti con i tool core, poi genera il draft con il tool fine-tuned."""
+    """Ciclo ReAct per il post corrente: raccoglie i fatti coi tool, poi
+    genera il draft col modello fine-tuned."""
     plan = state["plan"]
     idx = state["current_post_idx"]
     post = plan[idx]
@@ -145,7 +136,9 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
     tool_outputs: list[dict[str, Any]] = []
     gathered_facts: list[str] = []
     draft_body: str | None = None
+    seen_calls: set[tuple[str, str]] = set()  # (tool, args) gia' invocati in questa sessione
 
+    print(f"[gather_and_draft] '{post['topic']}': inizio ciclo ReAct...")
     for _ in range(MAX_REACT_STEPS):
         ai_message = llm.invoke(messages)
         messages.append(ai_message)
@@ -157,20 +150,41 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
             tool = TOOLS_BY_NAME.get(tool_name)
+            if tool is None and "facts" in tool_args:
+                # il LLM a volte storpia il nome del tool di drafting (es.
+                # "draft_with_facts" invece di "draft_with_finetuned_model"):
+                # la firma con `facts` e' univoca tra i 5 tool, quindi la
+                # chiamata e' recuperabile invece di scartarla come errore
+                tool_name = "draft_with_finetuned_model"
+                tool = TOOLS_BY_NAME.get(tool_name)
+            call_signature = (tool_name, json.dumps(tool_args, sort_keys=True, default=str))
             tool_failed = False
             if tool is None:
                 observation = f"Tool error: unknown tool '{tool_name}'."
                 tool_failed = True
+            elif call_signature in seen_calls:
+                # il modello a volte si blocca ripetendo lo stesso identico
+                # tool call invece di procedere al drafting: invece di
+                # rieseguirlo (rete/tempo sprecati) lo si spinge avanti
+                observation = (
+                    "You already called this exact tool with these exact arguments earlier "
+                    "in this session -- repeating it gives no new information. Call "
+                    "draft_with_finetuned_model now with the facts you have gathered so far."
+                )
+                tool_failed = True
             else:
+                seen_calls.add(call_signature)
                 try:
                     observation = tool.invoke(tool_args)
                 except Exception as exc:  # input non valido dal LLM: l'errore diventa una Observation,
-                    # cosi' il ciclo ReAct puo' autocorreggersi al prossimo turno invece di interrompersi.
+                    # cosi' il ciclo ReAct puo' autocorreggersi al prossimo turno invece di interrompersi
                     observation = (
                         f"Tool error calling {tool_name} with args {tool_args}: {exc}. "
                         f"Check the expected argument names and try again."
                     )
                     tool_failed = True
+
+            print(f"  step {len(reasoning_trace) + 1}: {tool_name}" + (" (fallito)" if tool_failed else ""))
 
             thought = (ai_message.content or "").strip()
             justification = thought or (
@@ -224,9 +238,14 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
         "body": draft_body,
         "citations": citations,
         "facts_used": gathered_facts,
+        "reasoning_trace": reasoning_trace,
     }
 
-    log_event("gather_and_draft", {"post": post, "reasoning_trace": reasoning_trace, "draft": draft})
+    tools_used = [step["tool"] for step in reasoning_trace]
+    print(
+        f"[gather_and_draft] '{post['topic']}': {len(reasoning_trace)} step "
+        f"({', '.join(tools_used)}), {len(citations)} citazioni — draft pronto per la revisione"
+    )
 
     return {
         "messages": messages,
@@ -240,9 +259,7 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
 
 
 def human_review(state: BlogAgentState) -> dict[str, Any]:
-    """Human-in-the-loop: il grafo si interrompe e restituisce il draft al
-    chiamante (main.py), che lo mostra all'utente e risponde con
-    Command(resume={'decision': ..., 'feedback': ...})."""
+    """Sospende il grafo e aspetta la decisione dell'utente sul draft."""
     decision = interrupt(
         {
             "draft": state["draft"],
@@ -257,8 +274,7 @@ def human_review(state: BlogAgentState) -> dict[str, Any]:
 
 
 def update_kg(state: BlogAgentState) -> dict[str, Any]:
-    """Scrittura incrementale nel KG, eseguita SOLO dopo approvazione (o
-    approvazione con modifica) umana."""
+    """Scrive il post nel KG, solo dopo l'approvazione umana."""
     draft = dict(state["draft"])
     if state.get("human_decision") == "modify" and state.get("human_feedback"):
         draft["body"] = state["human_feedback"]
@@ -287,7 +303,7 @@ def update_kg(state: BlogAgentState) -> dict[str, Any]:
     new_plan = list(plan)
     new_plan[idx] = {**new_plan[idx], "status": "approved"}
 
-    log_event("update_kg", {"post_id": post_id, "draft": draft})
+    print(f"[update_kg] post_id={post_id} title={draft['title']!r}")
 
     return {
         "plan": new_plan,
@@ -336,7 +352,7 @@ def build_graph():
 if __name__ == "__main__":
     # Debug: `python agent/graph.py` costruisce il grafo (senza eseguirlo)
     # e ne stampa la struttura in formato mermaid, per verificare rapidamente
-    # nodi/archi dopo una modifica, senza dover lanciare l'intero agente.
+    # nodi/archi dopo una modifica, senza dover lanciare l'intero agente
     app = build_graph()
     print("Grafo costruito correttamente.\n")
     print(app.get_graph().draw_mermaid())

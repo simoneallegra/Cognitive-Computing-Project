@@ -1,10 +1,6 @@
-"""K-RAG: retrieval sul web arricchito dal Knowledge Graph.
-
-La query viene prima espansa con i topic correlati gia' presenti nel KG,
-poi passa per la pipeline classica search -> fetch -> chunk -> embedding,
-e i passaggi tornano indietro con la fonte allegata per poter citare le
-affermazioni nel post generato.
-"""
+"""K-RAG: la query viene espansa coi topic correlati nel KG, poi passa
+per search -> fetch -> chunk -> embedding, e i passaggi tornano con la
+fonte allegata per poterli citare."""
 from __future__ import annotations
 
 from typing import Any
@@ -18,7 +14,7 @@ from rag.vectorstore import build_index, get_retriever
 
 
 def expand_query(query: str, topic: str | None, kg: Any | None) -> str:
-    """Espande la query con topic correlati presenti nel Knowledge Graph."""
+    """Aggiunge alla query i topic correlati trovati nel KG"""
     if not topic or kg is None:
         return query
     related = kg.expand_query_topics(topic)
@@ -28,8 +24,7 @@ def expand_query(query: str, topic: str | None, kg: Any | None) -> str:
 
 
 def gather_documents(query: str, max_sources: int = 4) -> list[Document]:
-    """Search -> fetch -> chunk. Ogni Document porta in metadata la fonte,
-    cosi' che il retrieval finale possa restituire citazioni verificabili."""
+    """Search -> fetch -> chunk. Ogni Document porta la fonte nei metadata"""
     results = search_web(query, max_results=max_sources)
     documents: list[Document] = []
     for result in results:
@@ -58,9 +53,8 @@ def retrieve_with_citations(
     max_sources: int = 4,
     k: int = 5,
 ) -> list[dict[str, str]]:
-    """Pipeline K-RAG completa: query espansa via KG -> ricerca -> fetch ->
-    chunk -> embedding -> retrieval. Ritorna passaggi con citazione della
-    fonte, pronti per giustificare le affermazioni del post generato."""
+    """Pipeline K-RAG completa: espande la query, recupera e ritorna i
+    passaggi con la relativa fonte"""
     expanded = expand_query(query, topic, kg)
     documents = gather_documents(expanded, max_sources=max_sources)
     index = build_index(documents)
@@ -80,7 +74,7 @@ def retrieve_with_citations(
 
 if __name__ == "__main__":
     # Debug: `python rag/krag.py` esegue la pipeline K-RAG completa
-    # (senza espansione KG, topic=None) su una query reale.
+    # (senza espansione KG, topic=None) su una query reale
     passages = retrieve_with_citations("best hiking trails in the Dolomites")
     print(f"{len(passages)} passaggi recuperati")
     for p in passages[:2]:

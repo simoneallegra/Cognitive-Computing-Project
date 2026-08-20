@@ -1,9 +1,5 @@
-"""Chunking del testo recuperato per il vector store RAG.
-
-Strategia: recursive chunking, che rispetta paragrafi/frasi quando
-possibile - un buon compromesso tra semplicita' e qualita' semantica
-rispetto al fixed-size chunking.
-"""
+"""Spezza il testo in chunk per il vector store, rispettando paragrafi
+e frasi dove possibile (recursive chunking)."""
 from __future__ import annotations
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -24,7 +20,7 @@ def chunk_text(text: str) -> list[str]:
 if __name__ == "__main__":
     # Debug: `python rag/chunking.py` mostra come un testo di prova viene
     # spezzato in chunk, per verificare a colpo d'occhio la dimensione e
-    # l'overlap configurati sopra.
+    # l'overlap configurati sopra
     sample = (
         "Paragraph one talks about hiking trails in the mountains.\n\n"
         "Paragraph two is a bit longer and talks about something else "

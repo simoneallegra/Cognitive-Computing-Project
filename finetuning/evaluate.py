@@ -1,9 +1,5 @@
-"""Confronto finale sul TEST set (mai usato per scegliere iperparametri):
-baseline (distilgpt2 zero-shot, prompt fact-grounded) vs vecchio modello
-fine-tuned senza contesto (saved_models/travel_posts_distilgpt2, root del
-progetto) vs nuovo modello fine-tuned fact-grounded.
-
-Produce anche l'error analysis richiesta (>= 3 failure case documentati).
+"""Confronto finale sul test set tra baseline, vecchio modello fine-tuned
+e nuovo modello, con analisi degli errori (almeno 3 failure case)
 """
 from __future__ import annotations
 

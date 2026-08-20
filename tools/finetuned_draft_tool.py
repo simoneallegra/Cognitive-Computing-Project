@@ -1,6 +1,5 @@
-"""Genera il testo del draft a partire dai fatti raccolti nello step ReAct,
-usando il distilgpt2 fine-tuned in finetuning/train.py sul task di
-drafting grounded sui fatti."""
+"""Genera il testo del draft dai fatti raccolti nel ReAct, usando il
+distilgpt2 fine-tuned in finetuning/train.py."""
 from __future__ import annotations
 
 from langchain_core.tools import tool
@@ -19,13 +18,9 @@ def draft_with_finetuned_model(
     topic: str, post_type: str, facts: list[str], max_new_tokens: int = 380
 ) -> str:
     """Draft the body text of a blog post using the team's fine-tuned
-    distilgpt2 model. Inputs: `topic` (e.g. a city or theme), `post_type`
-    (one of how_to/review/ranking), and `facts` — a list of
-    short factual statements gathered and verified via rag_retrieval_tool
-    / resource_quality_tool / kg_query_tool. The model was fine-tuned
-    specifically to generate text grounded in exactly this kind of fact
-    list, so call this tool ONLY AFTER the facts have been gathered and
-    quality-checked, to produce the actual draft."""
+    distilgpt2 model. Inputs: `topic`, `post_type` (how_to/review/ranking),
+    and `facts` — verified statements gathered via the other tools. Call
+    this ONLY AFTER gathering and quality-checking the facts."""
     generator, tokenizer = get_finetuned_generator()
     instruction = _TASK_INSTRUCTION.get(post_type, _TASK_INSTRUCTION["review"])
     facts_block = "\n".join(facts) if facts else "(no facts provided)"
@@ -52,7 +47,7 @@ def draft_with_finetuned_model(
 if __name__ == "__main__":
     # Debug: `python tools/finetuned_draft_tool.py` genera un draft di
     # prova per ciascun post_type, per ispezionare rapidamente la qualita'
-    # del modello fine-tuned senza passare dal ciclo ReAct completo.
+    # del modello fine-tuned senza passare dal ciclo ReAct completo
     debug_facts = [
         "The old town has cobblestone streets dating back to the 14th century.",
         "Local markets open at 7am and close by 2pm (source: example.com).",

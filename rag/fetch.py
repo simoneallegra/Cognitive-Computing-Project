@@ -25,10 +25,8 @@ def domain_of(url: str) -> str:
 
 
 def fetch_and_clean(url: str) -> str:
-    """Scarica una pagina e ne estrae il testo principale. Confine di rete
-    non controllabile (siti terzi arbitrari): errori e timeout sono
-    intenzionalmente catturati e tradotti in stringa vuota, perche' il
-    chiamante deve poter continuare a iterare su altri risultati di ricerca."""
+    """Scarica una pagina e ne estrae il testo. In caso di errore/timeout
+    ritorna stringa vuota, cosi' il chiamante puo' andare avanti."""
     try:
         response = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT_SECONDS)
         response.raise_for_status()
@@ -44,7 +42,7 @@ def fetch_and_clean(url: str) -> str:
 
 
 if __name__ == "__main__":
-    # Debug: `python rag/fetch.py` scarica e pulisce una pagina reale.
+    # Debug: `python rag/fetch.py` scarica e pulisce una pagina reale
     url = "https://en.wikipedia.org/wiki/Dolomites"
     text = fetch_and_clean(url)
     print(f"domain_of(url) = {domain_of(url)!r}")

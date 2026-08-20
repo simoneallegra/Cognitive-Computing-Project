@@ -1,8 +1,7 @@
-"""CLI entrypoint: esegue l'intero ciclo planning -> ReAct gathering ->
-drafting (tool fine-tuned) -> human-in-the-loop -> aggiornamento del KG.
+"""Entrypoint CLI: fa girare tutto il ciclo, dalla pianificazione fino
+all'aggiornamento del KG.
 
-Uso (da dentro questa cartella):
-    python main.py [--posts N]
+Uso: python main.py [--posts N]
 """
 from __future__ import annotations
 
@@ -12,8 +11,8 @@ import uuid
 
 from langgraph.types import Command
 
+import config
 from agent.graph import build_graph
-from observability.tracing import current_run_log_path, setup_langsmith
 
 
 def _print_draft(draft: dict) -> None:
@@ -48,7 +47,6 @@ def _ask_human_decision() -> dict:
 
 
 def run(n_posts: int) -> None:
-    setup_langsmith()
     app = build_graph()
     thread_config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
@@ -77,7 +75,6 @@ def run(n_posts: int) -> None:
         result = app.invoke(Command(resume=decision), config=thread_config)
 
     print(f"\nSession complete. {len(result['approved_posts'])} post(s) approved and written to the Knowledge Graph.")
-    print(f"Full reasoning trace logged to: {current_run_log_path()}")
 
 
 def main() -> None:

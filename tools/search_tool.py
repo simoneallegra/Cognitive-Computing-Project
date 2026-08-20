@@ -8,10 +8,8 @@ from rag.search import search_web
 
 @tool
 def search_web_tool(query: str, max_results: int = 5) -> str:
-    """Search the public web for up-to-date information about a travel
-    destination, activity, or event. Use this FIRST to discover candidate
-    sources (titles + URLs + short snippets) before deeper retrieval with
-    rag_retrieval_tool. Good for checking facts, events, and news."""
+    """Search the public web for up-to-date info on a travel topic. Use
+    this FIRST to find candidate sources, before rag_retrieval_tool."""
     results = search_web(query, max_results=max_results)
     if not results:
         return "No results found for this query."
@@ -27,5 +25,5 @@ def search_web_tool(query: str, max_results: int = 5) -> str:
 
 if __name__ == "__main__":
     # Debug: `python tools/search_tool.py` esegue una ricerca reale e ne
-    # stampa l'output cosi' come lo vedrebbe il LLM nel ciclo ReAct.
+    # stampa l'output cosi' come lo vedrebbe il LLM nel ciclo ReAct
     print(search_web_tool.invoke({"query": "best hiking trails in the Dolomites", "max_results": 3}))

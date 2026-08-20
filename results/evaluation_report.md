@@ -1,66 +1,34 @@
 # Agent evaluation report
 
-Analyzed 5 drafted post(s) across 5 run log(s).
+Analyzed 2 drafted post(s) from a fresh end-to-end run (--posts 2).
 
 ## Qualitative analysis of generated posts
 
-### adventure (how_to)
-- Reasoning steps: 8 | Quality checks performed: 5
-- Citations: 2 | Facts used: 2 | Grounding score: 0.75
-- Excerpt: "How to Spend 1 Week in Adventure\nLocation: Mid-Atlantic, south_america, United States\nBudget level: Mid-Atlantic\nculture: 4/5\nadventure: 4/5\nnature: 4/5\nbeaches: 1/5\nnightlife: 4/5\ncuisine: 4/5\nwellness: 4/5\nurban: 4/5\nseclusion: 4/5\n\nTopic: adventure\nTask: Write a 'how to spend your time' travel gu"
-
-### Exploring the ancient ruins of Petra, Jordan (review)
+### Cooking traditional Vietnamese pho in Hanoi (review)
 - Reasoning steps: 7 | Quality checks performed: 4
-- Citations: 2 | Facts used: 2 | Grounding score: 0.75
-- Excerpt: 'Petra Petra, Jordan\nDescription: Charming cobblestone streets lined with historic architecture create a serene atmosphere, perfect for exploration and exploration.\nIdeal durations: ["Short trip","One week"]\nBudget level: Mid-range\nculture: 5/5\nadventure: 3/5\nnature: 4/5\nbeaches: 1/5\nnightlife: 3/5\nc'
+- Citations: 4 | Facts used: 2 | Grounding score: 0.10
+- Excerpt: 'How much meat? 1 tablespoon cream cheese; roughly half its energy comes from protein digestion — factor one through extra time (or calories depending on your budget). If true peace & quiet are any indicator, this book tells an interesting story…if only there was real love left behind – meals at leas'
 
-### The hidden waterfalls of Bali, Indonesia (review)
-- Reasoning steps: 7 | Quality checks performed: 1
-- Citations: 0 | Facts used: 2 | Grounding score: 0.75
-- Excerpt: 'Bali, Indonesia\nIdeal durations: ["Short trip","Weekend","One week"]\nBudget level: Budget\nculture: 3/5\nadventure: 4/5\nnature: 5/5\nbeaches: 3/5\nnightlife: 3/5\ncuisine: 4/5\nwellness: 3/5\nurban: 3/5\nseclusion: 3/5\n\nTopic: The hidden waterfalls of Bali, Indonesia\nTask: Write a travel review blog post us'
-
-### The best street food markets in Bangkok, Thailand (review)
-- Reasoning steps: 6 | Quality checks performed: 1
-- Citations: 3 | Facts used: 3 | Grounding score: 0.65
-- Excerpt: "Bangkok, Thailand\nBest street food markets in Bangkok, Thailand\n\nBangkok is a food paradise, with a wide variety of street food options, and it's impossible to narrow down the favorites (source: https://www.feastographyblog.com/blog/best-bangkok-night-markets)\n\n---\n\n**Day 1: The food**\nBuild your it"
-
-### The best street food markets in Bangkok, Thailand (review)
-- Reasoning steps: 3 | Quality checks performed: 1
-- Citations: 0 | Facts used: 2 | Grounding score: 0.75
-- Excerpt: 'Budget level: Mid-range\nculture: 5/5\nadventure: 3/5\nnature: 4/5\nbeaches: 1/5\nnightlife: 5/5\ncuisine: 5/5\nwellness: 2/5\nurban: 5/5\nseclusion: 3/5\n\nTopic: The best street food markets in Bangkok, Thailand\nTask: Write a travel review blog post using ONLY the facts above.\n\nTopic: The best street food ma'
+### Best stargazing spots in the Atacama Desert (ranking)
+- Reasoning steps: 3 | Quality checks performed: 0
+- Citations: 4 | Facts used: 5 | Grounding score: 0.13
+- Excerpt: 'Best City 1 — Barcelona | Madrid\n**Bottom line: **Arriving at top cultural heritage means stepping into an adventure activity that speaks for itself.</p><br /> Al Jazeera Spain deserves real time on this front! <a href="https?src=hash">#Barcelona</A>: Barça ranks among most beautiful destinations ar'
 
 ## Source quality and grounding assessment
 
-- Average grounding score: 0.73
-- Average citations per post: 1.4
+- Average grounding score: 0.12
+- Average citations per post: 4.0
 
 ## Documented failure cases
 
-### Failure case #1 — adventure
-- Reason: Reasoning loop exhausted its step budget (6 steps) before the model voluntarily called the drafting tool; a forced fallback draft was used.
-- Evidence: {'step': 8, 'thought': 'Reasoning budget exhausted before the model called the drafting tool.', 'tool': 'draft_with_finetuned_model', 'tool_args': {'topic': 'adventure', 'post_type': 'how_to', 'facts': ['Topic: adventure', 'Post type: how_to']}, 'observation': 'How to Spend 1 Week in Adventure\nLocation: Mid-Atlantic, south_america, United States\nBudget level: Mid-Atlantic\nculture: 4/5\nadventure: 4/5\nnature: 4/5\nbeaches: 1/5\nnightlife: 4/5\ncuisine: 4/5\nwellness: 4/5\nurban: 4/5\nseclusion: 4/5\n\nTopic: adventure\nTask: Write a \'how to spend your time\' travel guide post using ONLY the facts above.\n\n---\n\nHow to Spend 1 Week in Adventure\nLocation: Mid-Atlantic, south_america, United States\nBudget level: "Mid-Atlantic"\nBest for: "How to Spend 1 Week in Adventure"\n\n---\n\nHow to Spend 1 Week in Adventure\nLocation: Mid-Atlantic, south_america, United States\nBudget level: "Mid-Atlantic"\nBest for: "How to Spend 1 Week in Adventure"\n\n---\n\nHow to', 'justification': 'Fallback to guarantee a fine-tuned, grounded draft within the step budget.'}
+### Failure case #1 — Cooking traditional Vietnamese pho in Hanoi
+- Reason: Low grounding score (0.10): the drafted text does not clearly reflect the facts gathered during retrieval.
+- Evidence: facts_used=['That broth , simmered for hours until it’s rich, fragrant, and packed with beefy depth Paper-thin beef slices that cook right in the steaming hot broth A rainbow of fresh herbs , Thai basil, cilantro, and lime wedges that make every bite bright Authentic Hanoi flavors , no shortcuts, just like the street vendors make it One bowl and you’ll understand why pho is Vietnam’s national treasure!', 'Ingredients for Hanoi Beef Pho Let’s gather everything you’ll need to make magic happen! I’ve divided the ingredients into two simple groups, because pho is all about that luscious broth and those perfect toppings']
 
-### Failure case #2 — Exploring the ancient ruins of Petra, Jordan
-- Reason: Reasoning loop exhausted its step budget (6 steps) before the model voluntarily called the drafting tool; a forced fallback draft was used.
-- Evidence: {'step': 7, 'thought': 'Reasoning budget exhausted before the model called the drafting tool.', 'tool': 'draft_with_finetuned_model', 'tool_args': {'topic': 'Exploring the ancient ruins of Petra, Jordan', 'post_type': 'review', 'facts': ['Topic: Exploring the ancient ruins of Petra, Jordan', 'Post type: review']}, 'observation': 'Petra Petra, Jordan\nDescription: Charming cobblestone streets lined with historic architecture create a serene atmosphere, perfect for exploration and exploration.\nIdeal durations: ["Short trip","One week"]\nBudget level: Mid-range\nculture: 5/5\nadventure: 3/5\nnature: 4/5\nbeaches: 1/5\nnightlife: 3/5\ncuisine: 3/5\nwellness: 2/5\nurban: 3/5\nseclusion: 4/5\n\nTopic: Exploring the ancient ruins of Petra, Jordan\nTask: Write a travel review blog post using ONLY the facts above.\n\nTopic: Exploring the ancient ruins of Petra, Jordan\nTask: Write a travel review blog post using ONLY the facts above.\n\nTopic: Exploring the ancient ruins of Petra, Jordan\nTask: Write a travel review blog post using ONLY the facts above.\n\n---\n\nExpect a busy, metropolitan pace — factor in extra time for traffic and crowds.\n\n---', 'justification': 'Fallback to guarantee a fine-tuned, grounded draft within the step budget.'}
-
-### Failure case #3 — The hidden waterfalls of Bali, Indonesia
-- Reason: No citations attached to the draft: RAG retrieval returned no usable passages, or the agent drafted without citing any retrieved source.
-- Evidence: n_facts_used=2, n_reasoning_steps=7
-
-### Failure case #4 — The hidden waterfalls of Bali, Indonesia
-- Reason: Reasoning loop exhausted its step budget (6 steps) before the model voluntarily called the drafting tool; a forced fallback draft was used.
-- Evidence: {'step': 7, 'thought': 'Reasoning budget exhausted before the model called the drafting tool.', 'tool': 'draft_with_finetuned_model', 'tool_args': {'topic': 'The hidden waterfalls of Bali, Indonesia', 'post_type': 'review', 'facts': ['Topic: The hidden waterfalls of Bali, Indonesia', 'Post type: review']}, 'observation': 'Bali, Indonesia\nIdeal durations: ["Short trip","Weekend","One week"]\nBudget level: Budget\nculture: 3/5\nadventure: 4/5\nnature: 5/5\nbeaches: 3/5\nnightlife: 3/5\ncuisine: 4/5\nwellness: 3/5\nurban: 3/5\nseclusion: 3/5\n\nTopic: The hidden waterfalls of Bali, Indonesia\nTask: Write a travel review blog post using ONLY the facts above.\n\n---\n\nBali, Indonesia\n\nOne of the most beautiful hidden watersfalls of Bali, Indonesia\nTask: Write a travel review blog post using ONLY the facts above.\n\n---\n\nFrom an architectural and social standpoint, Bali is a concentrate of history, art and identity: every street tells a story, and the cultural heritage is simply overwhelming. The cultural heritage in Bali is simply overwhelming, overwhelming, almost overwhelming.\n\nFor those seeking excitement and movement, Bali delivers: H', 'justification': 'Fallback to guarantee a fine-tuned, grounded draft within the step budget.'}
-
-### Failure case #5 — The best street food markets in Bangkok, Thailand
-- Reason: No citations attached to the draft: RAG retrieval returned no usable passages, or the agent drafted without citing any retrieved source.
-- Evidence: n_facts_used=2, n_reasoning_steps=3
-
-### Failure case #6 — The best street food markets in Bangkok, Thailand
-- Reason: Reasoning loop exhausted its step budget (6 steps) before the model voluntarily called the drafting tool; a forced fallback draft was used.
-- Evidence: {'step': 3, 'thought': 'Reasoning budget exhausted before the model called the drafting tool.', 'tool': 'draft_with_finetuned_model', 'tool_args': {'topic': 'The best street food markets in Bangkok, Thailand', 'post_type': 'review', 'facts': ['Topic: The best street food markets in Bangkok, Thailand', 'Post type: review']}, 'observation': 'Budget level: Mid-range\nculture: 5/5\nadventure: 3/5\nnature: 4/5\nbeaches: 1/5\nnightlife: 5/5\ncuisine: 5/5\nwellness: 2/5\nurban: 5/5\nseclusion: 3/5\n\nTopic: The best street food markets in Bangkok, Thailand\nTask: Write a travel review blog post using ONLY the facts above.\n\nTopic: The best street food markets in Bangkok, Thailand\nTask: Write a travel review blog post using ONLY the facts above.\n\nTopic: The best street food markets in Bangkok, Thailand\nTask: Write a travel review blog post using ONLY the facts above.\n\n<RESP>\nTask: Write a travel review blog post using ONLY the facts above.\n\nTopic: The best street food markets in Bangkok, Thailand\nTask: Write a travel review blog post using ONLY the facts above.\n\nTopic: The best street food markets in Bangkok, Thailand\nTask: Write a travel review', 'justification': 'Fallback to guarantee a fine-tuned, grounded draft within the step budget.'}
+### Failure case #2 — Best stargazing spots in the Atacama Desert
+- Reason: Low grounding score (0.13): the drafted text does not clearly reflect the facts gathered during retrieval.
+- Evidence: facts_used=['Top Stargazing Spots in Chile’s Atacama Desert offer crystal-clear skies and minimal light pollution due to high altitude and dry climate (source: https://www.avasafari.com/blog/2025/6/stargazing-in-the-atacama-desert)', 'DIY stargazing works from Valle de la Luna, Salar de Atacama, or desert roads though tours provide superior telescope equipment (source: https://atacamachiletours.com/astronomy-in-atacama-desert)', "The Atacama Desert hosts half of the world's ground-based astronomy projects and is a global hub for astro-tourism (source: https://www.lonelyplanet.com/articles/stargazing-atacama-desert-chile)", 'Stargazing in the Atacama Desert is especially spectacular during new moon periods (source: https://www.lonelyplanet.com/articles/stargazing-atacama-desert-chile)', 'Professional observatories like ALMA and ESO Paranal are located in the Atacama Desert, providing exceptional stargazing conditions (source: https://www.avasafari.com/blog/2025/6/stargazing-in-the-atacama-desert)']
 
 ## Observability
 
-- Local structured run logs (Thought/Action/Observation, tool outputs, KG summaries, plan): /home/sallegra/progetto-cognitive/prova_ai/results/run_logs/run_*.jsonl (always on, no account required).
-- LangSmith tracing: enabled automatically if LANGCHAIN_API_KEY is set in .env (see prova_ai/observability/tracing.py).
+- LangSmith tracing was active for this run (project: blogger-support-agent). Per-step latency, token usage and the full Thought/Action/Observation trace are available at https://smith.langchain.com.

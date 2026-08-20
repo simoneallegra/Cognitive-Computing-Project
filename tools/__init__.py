@@ -4,7 +4,7 @@ from tools.quality_tool import resource_quality_tool
 from tools.rag_tool import rag_retrieval_tool
 from tools.search_tool import search_web_tool
 
-# Tool esposti al ciclo ReAct dell'agente (bind_tools).
+# Tool esposti al ciclo ReAct dell'agente (bind_tools)
 REACT_TOOLS = [
     search_web_tool,
     rag_retrieval_tool,

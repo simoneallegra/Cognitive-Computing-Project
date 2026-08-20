@@ -1,10 +1,6 @@
-"""Fine-tuning del draft generator grounded sui fatti.
-
-1. baseline = distilgpt2 non fine-tuned, stesso prompt fact-grounded (zero-shot)
-2. hyperparameter search (lr x epochs) sul validation set
-3. training finale con la configurazione migliore
-4. confronto finale con baseline + vecchio modello (senza contesto) ed
-   error analysis: in evaluate.py, sul test set
+"""Fine-tuning del draft generator: baseline zero-shot, hyperparameter
+search sul validation set, poi training finale con la config migliore.
+Il confronto finale sul test set e' in evaluate.py.
 """
 from __future__ import annotations
 
@@ -52,12 +48,9 @@ class RunResult:
 
 
 def _tokenize(example: dict, tokenizer) -> dict:
-    """Tokenizza prompt+completamento e maschera la loss sul prompt (label
-    -100): il modello deve imparare a SCRIVERE il post, non a prevedere il
-    blocco "Facts:" che gli viene dato in input. Senza questo masking,
-    DataCollatorForLanguageModeling calcolerebbe la loss sull'intera
-    sequenza, insegnando al modello a rigurgitare i fatti (inclusi i
-    punteggi "x/5") invece di limitarsi a scriverci sopra un post."""
+    """Tokenizza prompt+completamento, mascherando la loss sul prompt
+    (label -100): il modello deve imparare a scrivere il post, non a
+    ripetere i fatti che gli diamo in input."""
     prompt_section = f"<PROMPT>\n{example['prompt']}\n<RESP>\n"
     full_text = prompt_section + example["completion"] + tokenizer.eos_token
 
@@ -96,9 +89,8 @@ def fresh_model_and_tokenizer():
 
 
 def evaluate_grounding(model, tokenizer, raw_validation, n_samples: int = N_GROUNDING_SAMPLES) -> float:
-    """Genera il continuamento per un campione di prompt di validation e
-    misura quanti dei fatti elencati nel prompt compaiono nel testo
-    generato (vedi finetuning/metrics.py)."""
+    """Genera un campione di post di validation e misura il grounding
+    medio (vedi finetuning/metrics.py)."""
     model.eval()
     sample = raw_validation.shuffle(seed=SEED).select(range(min(n_samples, len(raw_validation))))
     scores = []

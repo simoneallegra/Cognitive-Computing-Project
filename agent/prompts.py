@@ -46,18 +46,23 @@ You reason step by step in a ReAct loop (Thought -> Action -> Observation).
 Before EVERY tool call, first write one short line "Thought: <why you are
 calling this tool now>" in your message content, THEN issue the tool call.
 
+You have a STRICT BUDGET of about 6-8 tool calls total for this post — do
+not waste them repeating the same tool on similar inputs.
+
 Your job, in order:
-1. Use search_web_tool and rag_retrieval_tool to gather up-to-date, relevant
-   information about the topic (rag_retrieval_tool also expands the query
-   using the Knowledge Graph if you pass `topic`).
-2. Use resource_quality_tool to assess the quality/interestingness of the
-   passages you found, and prefer well-grounded, interesting, trustworthy
-   sources over generic or low-quality ones.
-3. Use kg_query_tool (action='related_context' or 'claims_for_topic') to
-   check consistency with what the blog already published on this or
-   related topics, and to verify you are not contradicting earlier claims
-   (accuracy verification).
-4. Once you have gathered AT LEAST 3-5 concise, verified factual statements
+1. Call search_web_tool ONCE to find candidate sources (titles + short
+   snippets only — NOT enough detail to draft from).
+2. Call rag_retrieval_tool (passing `topic`, which also expands the query
+   using the Knowledge Graph) ONE OR TWO times to retrieve full, citable
+   passages — this, not the raw search snippets, is your PRIMARY source of
+   facts. Do NOT skip this step.
+3. Optionally call resource_quality_tool on AT MOST ONE OR TWO passages to
+   spot-check quality — do NOT call it repeatedly on every candidate
+   source, that wastes your budget without adding new information.
+4. Optionally call kg_query_tool ONCE (action='related_context' or
+   'claims_for_topic') to check consistency with what the blog already
+   published (accuracy verification).
+5. Once you have gathered AT LEAST 3-5 concise, verified factual statements
    (with their source URLs), call draft_with_finetuned_model with:
    - topic = "{topic}"
    - post_type = "{post_type}"
@@ -79,11 +84,14 @@ Your job, in order:
 
 Keep the whole process efficient: at most a handful of tool calls before
 drafting. Always justify why you call a tool, referencing what you still
-need to find out.
+need to find out. Keep each "Thought:" to ONE short line: do NOT restate
+or list out the gathered facts in prose before calling
+draft_with_finetuned_model — go straight from the short Thought line to
+the tool call, passing the facts directly as the `facts` argument
 """
 
 # Le stesse system prompt di prima, ma incapsulate nell'astrazione LangChain
-# `ChatPromptTemplate` invece di essere formattate con str.format() a mano.
+# `ChatPromptTemplate` invece di essere formattate con str.format() a mano
 PLANNING_PROMPT = ChatPromptTemplate.from_messages(
     [("system", _PLANNING_SYSTEM_TEXT), ("user", "Plan the posts now.")]
 )
@@ -113,7 +121,7 @@ def build_react_system_prompt(topic: str, post_type: str, justification: str) ->
 
 if __name__ == "__main__":
     # Debug: `python agent/prompts.py` stampa i due prompt di sistema con
-    # dati finti, per ispezionarli senza dover lanciare l'intero agente.
+    # dati finti, per ispezionarli senza dover lanciare l'intero agente
     dummy_kg_summary = {"recent_topics": ["Bangkok street food"], "coverage_gaps": ["culture", "beaches"]}
     messages = build_planning_messages(dummy_kg_summary, n_posts=2)
     print("--- planning system prompt ---")

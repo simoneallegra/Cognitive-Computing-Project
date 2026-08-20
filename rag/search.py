@@ -18,6 +18,6 @@ def search_web(query: str, max_results: int = 5) -> list[dict[str, Any]]:
 
 if __name__ == "__main__":
     # Debug: `python rag/search.py` esegue una ricerca reale e stampa i
-    # risultati grezzi, senza passare dal tool LangChain.
+    # risultati grezzi, senza passare dal tool LangChain
     for r in search_web("best hiking trails in the Dolomites", max_results=3):
         print(f"- {r.get('title')} | {r.get('href')}")

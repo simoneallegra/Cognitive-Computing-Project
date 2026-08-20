@@ -6,17 +6,11 @@ Schema:
   (:Source {url, domain})
   (:Claim {id, text})
 
-  (Post)-[:TALKS_ABOUT]->(Topic)
-  (Post)-[:USES_SOURCE]->(Source)
-  (Post)-[:CONTAINS]->(Claim)
-  (Claim)-[:SUPPORTED_BY]->(Source)
-  (Topic)-[:RELATED_TO]->(Topic)
-
-Il grafo viene interrogato in fase di planning/topic-suggestion (per evitare
-ripetizioni e individuare gap di copertura) e in fase di drafting (per
-garantire consistenza con i post precedenti e collegare il nuovo post a
-topic esistenti), e viene aggiornato in modo incrementale solo dopo
-l'approvazione umana di un post.
+  (Post)-[:TALKS_ABOUT]->(Topic)        "di cosa parla il post"
+  (Post)-[:USES_SOURCE]->(Source)       "fonti citate nel post"
+  (Post)-[:CONTAINS]->(Claim)           "claim discussi nel post"
+  (Claim)-[:SUPPORTED_BY]->(Source)     "fonti a supporto del claim"
+  (Topic)-[:RELATED_TO]->(Topic)        "quali topic sono correlati tra loro"
 """
 from __future__ import annotations
 
@@ -45,7 +39,7 @@ class KnowledgeGraph:
     def __exit__(self, *exc_info: Any) -> None:
         self.close()
 
-    # ------------------------------------------------------------------ setup
+    # --------------------------------- setup ---------------------------------
     def _ensure_constraints(self) -> None:
         constraints = [
             "CREATE CONSTRAINT post_id IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
@@ -57,7 +51,7 @@ class KnowledgeGraph:
             for cypher in constraints:
                 session.run(cypher)
 
-    # ------------------------------------------------------------------ writes (solo dopo approvazione)
+    # -------------------------- writes (solo dopo approvazione) ---------------------------------
     def add_post(self, post_id: str, title: str, post_type: str, summary: str = "") -> None:
         query = """
         MERGE (p:Post {id: $id})
@@ -126,9 +120,9 @@ class KnowledgeGraph:
                     source_url=source_url,
                 )
 
-    # ------------------------------------------------------------------ queries (planning / drafting)
+    # ------------------------------ queries (planning / drafting) ---------------------------------
     def get_recent_topics(self, limit: int = 10) -> list[str]:
-        """Topic trattati piu' di recente: usati per EVITARE ripetizione."""
+        """Topic trattati piu' di recente, da evitare."""
         query = """
         MATCH (p:Post)-[:TALKS_ABOUT]->(t:Topic)
         RETURN t.name AS topic, max(p.created_at) AS last_used
@@ -140,7 +134,7 @@ class KnowledgeGraph:
             return [r["topic"] for r in result]
 
     def get_coverage_gaps(self, candidate_topics: list[str]) -> list[str]:
-        """Topic candidati dal seed del dominio che non sono MAI stati trattati."""
+        """Topic candidati mai trattati finora."""
         query = """
         UNWIND $candidates AS candidate
         OPTIONAL MATCH (t:Topic {name: candidate})<-[:TALKS_ABOUT]-(:Post)
@@ -153,8 +147,7 @@ class KnowledgeGraph:
             return [r["topic"] for r in result]
 
     def get_related_context(self, topic: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Post precedenti collegati allo stesso topic o a topic correlati: usati
-        in fase di drafting per garantire consistenza e collegare il nuovo post."""
+        """Post precedenti sullo stesso topic o su topic correlati."""
         query = """
         MATCH (t:Topic {name: $topic})
         OPTIONAL MATCH (t)-[:RELATED_TO]-(related:Topic)
@@ -170,8 +163,7 @@ class KnowledgeGraph:
             return [dict(r) for r in result]
 
     def expand_query_topics(self, topic: str, limit: int = 5) -> list[str]:
-        """Topic correlati nel KG: usati per espandere/raffinare la query di
-        retrieval nel pattern K-RAG (knowledge-graph-augmented RAG)."""
+        """Topic correlati, per espandere la query nel pattern K-RAG."""
         query = """
         MATCH (t:Topic {name: $topic})-[:RELATED_TO]-(related:Topic)
         RETURN DISTINCT related.name AS topic
@@ -192,7 +184,7 @@ class KnowledgeGraph:
             return [r["text"] for r in result]
 
     def summary(self) -> dict[str, Any]:
-        """Riassunto sintetico del KG, usato per popolare lo stato dell'agente."""
+        """Conteggio di post/topic/fonti/claim nel KG."""
         query = """
         MATCH (p:Post) WITH count(p) AS posts
         MATCH (t:Topic) WITH posts, count(t) AS topics
@@ -207,8 +199,7 @@ class KnowledgeGraph:
 
 
 if __name__ == "__main__":
-    # Debug: `python kg/client.py` verifica la connessione a Neo4j e mostra
-    # lo stato attuale del grafo, senza dover passare da tutto l'agente.
+    # verifica la connessione a Neo4j e mostra lo stato attuale del grafo
     print("Test di connessione a Neo4j...")
     try:
         with KnowledgeGraph() as kg:

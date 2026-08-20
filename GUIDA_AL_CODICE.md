@@ -16,7 +16,7 @@ capito prima di andare avanti.
 6. `agent/llm.py` + `agent/prompts.py` — il modello e i prompt
 7. `agent/graph.py` — il cuore: il grafo LangGraph e il ciclo ReAct
 8. `main.py` — l'entrypoint CLI
-9. `observability/` + `evaluate_agent.py` — logging e valutazione
+9. `evaluate_agent.py` — valutazione end-to-end dell'agente
 10. `finetuning/` — pipeline di training del modello di drafting
 
 Appendice: glossario dei termini usati.
@@ -256,11 +256,18 @@ LEGACY_FT_MODEL_DIR = PROJECT_DIR / "saved_models" / "travel_posts_distilgpt2"
 LEGACY_BASE_MODEL_DIR = PROJECT_DIR / "saved_models" / "distilgpt2_base"
 
 RAG_INDEX_DIR = PROJECT_DIR / "rag" / "faiss_index"
-RUN_LOGS_DIR = PROJECT_DIR / "results" / "run_logs"
 EVAL_REPORT_PATH = PROJECT_DIR / "results" / "evaluation_report.md"
 
 RAG_INDEX_DIR.mkdir(parents=True, exist_ok=True)
-RUN_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def setup_langsmith() -> bool:
+    if not LANGCHAIN_API_KEY:
+        return False
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = LANGCHAIN_API_KEY
+    os.environ.setdefault("LANGCHAIN_PROJECT", "blogger-support-agent")
+    return True
 ```
 
 **Cosa notare:**
@@ -288,9 +295,23 @@ RUN_LOGS_DIR.mkdir(parents=True, exist_ok=True)
   modello di riferimento usato solo (facoltativamente) in
   `finetuning/evaluate.py` per un confronto storico — se quella cartella
   non esiste, il codice se ne accorge e salta quel confronto (vedi Step 10).
-- Le ultime due righe (`.mkdir(...)`) sono le uniche con un effetto
-  collaterale: ad ogni `import config`, il progetto si assicura che quelle
-  due cartelle esistano già, per evitare errori "file not found" più avanti.
+- `setup_langsmith()` attiva il tracing LangSmith (servizio esterno di
+  osservabilità per applicazioni LangChain, gratuito per uso individuale)
+  impostando le variabili d'ambiente standard che LangChain legge da solo
+  — solo se `LANGCHAIN_API_KEY` è presente in `.env`, altrimenti ritorna
+  `False` senza fare nulla. Chiamata da `main.py` (Step 8) ed
+  `evaluate_agent.py` (Step 9) prima di costruire il grafo.
+- Nota pratica su LangSmith: se l'account è sulla regione **EU** (LangSmith
+  di default punta all'endpoint US), va impostata anche
+  `LANGCHAIN_ENDPOINT=https://eu.api.smith.langchain.com` in `.env` — non
+  è una variabile che `config.py` legge esplicitamente, ma `load_dotenv()`
+  la mette comunque in `os.environ`, dove il client LangSmith la trova da
+  solo. Senza, l'invio delle trace fallisce con `403 Forbidden` pur con
+  una chiave valida (è un problema di endpoint, non di credenziali).
+- L'ultima riga prima della funzione (`.mkdir(...)`) è l'unico effetto
+  collaterale a livello di import: ad ogni `import config`, il progetto si
+  assicura che quella cartella esista già, per evitare errori "file not
+  found" più avanti.
 
 **Verifica la comprensione:**
 - Se cancellassi il file `.env`, quale variabile smetterebbe subito di
@@ -327,6 +348,39 @@ Quattro tipi di nodi, cinque tipi di relazioni. Ogni post parla di uno o
 più topic, usa fonti, contiene affermazioni ("claim"), e ogni affermazione
 è supportata da una fonte specifica (che può essere diversa dalle fonti
 generali del post).
+
+**Cosa rappresenta ciascun nodo:**
+- **`Post`** `{id, title, post_type, created_at, summary}` — un articolo
+  effettivamente **approvato e pubblicato**. Creato solo da `add_post()`,
+  chiamata dal nodo `update_kg` del grafo dell'agente (Step 7) — cioè solo
+  dopo che l'utente ha risposto "approve"/"modify" all'human review, mai
+  per un draft rifiutato. `id` è un UUID, `post_type` è uno tra
+  `how_to`/`review`/`ranking`.
+- **`Topic`** `{name}` — l'argomento di cui parla un post (es. "Hiking the
+  Alta Via 1 in the Dolomites"). Non ha un elenco chiuso: viene creato al
+  volo con `MERGE` la prima volta che un post lo tocca (`link_post_topic`).
+  Due topic possono essere collegati tra loro con `RELATED_TO`
+  (`link_topics_related`) — è il pezzo che rende possibile il K-RAG: se si
+  scrive di un topic nuovo ma vicino a uno già trattato, `expand_query_topics`
+  (Step 5) lo trova.
+- **`Source`** `{url, domain}` — una fonte web citata, o da un post
+  (`link_post_source`, relazione `USES_SOURCE`) o da un singolo claim
+  (`add_claim`, relazione `SUPPORTED_BY`). Creata anch'essa al volo con
+  `MERGE`: se due post citano lo stesso URL è lo **stesso nodo**, non
+  duplicato.
+- **`Claim`** `{id, text}` — una singola **affermazione fattuale**
+  estratta durante il ciclo ReAct (uno dei "fatti" raccolti e passati al
+  tool di drafting, Step 7), collegata al post che la contiene
+  (`CONTAINS`) e, se nota, alla fonte specifica che la supporta
+  (`SUPPORTED_BY`) — è il livello più granulare: mentre `Source` dice
+  "questo post ha usato questo URL", `Claim`+`SUPPORTED_BY` dice "questa
+  frase specifica viene da quell'URL specifico".
+
+Sono esattamente i 5 elementi richiesti dalle specifiche del progetto per
+il Knowledge Graph ("post generati in precedenza, argomenti trattati,
+fonti utilizzate, affermazioni chiave estratte dal contenuto, relazioni
+tra gli argomenti") — mappano 1:1 su `Post`/`Topic`/`Source`/`Claim` +
+`RELATED_TO`.
 
 ### Inizializzazione e connessione
 
@@ -699,10 +753,10 @@ def get_retriever(index, k=4) -> VectorStoreRetriever:
 ```
 Il modello di embedding (`sentence-transformers/all-MiniLM-L6-v2`) viene
 caricato una sola volta (`lru_cache`). L'indice FAISS invece viene
-ricostruito **da zero ad ogni retrieval**: come spiega il docstring del
-file, non ha senso persisterlo tra sessioni diverse, perché le fonti sono
-pagine web recuperate di volta in volta dal Search tool — persistere un
-indice basato su ricerche passate lo renderebbe presto obsoleto.
+ricostruito **da zero ad ogni retrieval**, senza persisterlo su disco: non
+avrebbe senso, perché le fonti sono pagine web recuperate di volta in
+volta dal Search tool — persistere un indice basato su ricerche passate lo
+renderebbe presto obsoleto.
 Il retrieval avviene tramite `index.as_retriever(...)`, l'astrazione
 standard `VectorStoreRetriever` di LangChain (invocabile con
 `.invoke(query)`), invece di chiamare direttamente
@@ -773,10 +827,10 @@ def retrieve_with_citations(query, topic=None, kg=None, max_sources=4, k=5):
 
 ### `agent/llm.py` — il problema e la soluzione
 
-Il docstring del file spiega il problema tecnico da risolvere:
-`ChatHuggingFace` di `langchain_huggingface`, quando usa un modello locale
-(backend "pipeline"), **non inoltra lo schema dei tool** al chat template —
-lo fa solo per l'API a pagamento (backend "endpoint"). Qwen2.5 però gestisce
+Il problema tecnico da risolvere: `ChatHuggingFace` di
+`langchain_huggingface`, quando usa un modello locale (backend
+"pipeline"), **non inoltra lo schema dei tool** al chat template — lo fa
+solo per l'API a pagamento (backend "endpoint"). Qwen2.5 però gestisce
 il tool-calling tramite il proprio chat template, che se riceve `tools=`
 istruisce il modello a emettere blocchi XML
 `<tool_call>{"name": ..., "arguments": ...}</tool_call>`. Serve quindi un
@@ -785,6 +839,15 @@ wrapper che lo faccia manualmente.
 ```python
 _TOOL_CALL_OPEN = "<tool_call>"
 _TOOL_CALL_CLOSE = "</tool_call>"
+_MISSING_COMMA_RE = re.compile(r'"\s+"')
+
+def _parse_tool_call_json(payload_text):
+    for candidate in (payload_text, _MISSING_COMMA_RE.sub('", "', payload_text)):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return None
 
 def _extract_tool_calls(text):
     tool_calls = []
@@ -795,13 +858,15 @@ def _extract_tool_calls(text):
         if start == -1:
             break
         end = remaining.find(_TOOL_CALL_CLOSE, start)
-        if end == -1:
-            break
-        payload_text = remaining[start + len(_TOOL_CALL_OPEN):end].strip()
-        try:
-            payload = json.loads(payload_text)
-        except json.JSONDecodeError:
-            cursor = end + len(_TOOL_CALL_CLOSE)
+        if end != -1:
+            payload_end = end
+        else:
+            next_open = remaining.find(_TOOL_CALL_OPEN, start + len(_TOOL_CALL_OPEN))
+            payload_end = next_open if next_open != -1 else len(remaining)
+        payload_text = remaining[start + len(_TOOL_CALL_OPEN):payload_end].strip()
+        payload = _parse_tool_call_json(payload_text)
+        if payload is None:
+            cursor = (end + len(_TOOL_CALL_CLOSE)) if end != -1 else payload_end
             continue
         tool_calls.append({
             "name": payload.get("name"),
@@ -809,7 +874,8 @@ def _extract_tool_calls(text):
             "id": f"call_{uuid.uuid4().hex[:24]}",
             "type": "tool_call",
         })
-        remaining = remaining[:start] + remaining[end + len(_TOOL_CALL_CLOSE):]
+        close_at = (end + len(_TOOL_CALL_CLOSE)) if end != -1 else payload_end
+        remaining = remaining[:start] + remaining[close_at:]
     return tool_calls, remaining.strip()
 ```
 Scansiona il testo generato cercando ogni coppia `<tool_call>`/`</tool_call>`
@@ -820,12 +886,28 @@ blocco riconosciuto viene anche rimosso dal testo, così quello che resta
 (`remaining`) è il "pensiero" (`Thought`) da mostrare come contenuto del
 messaggio.
 
+Questa versione è più robusta di un semplice "trova apertura, trova
+chiusura, fai il parse" perché il modello locale (3B, senza decoding
+vincolato da una grammatica) a volte non si comporta come ci si
+aspetterebbe: **non emette `</tool_call>`** e si ferma subito dopo il JSON
+(gestito considerando il payload chiuso al prossimo `<tool_call>` — utile
+se il modello ne apre un secondo "auto-correggendosi" a metà risposta — o
+a fine testo), oppure **dimentica le virgole** tra le stringhe di un array
+come `facts` (`_parse_tool_call_json` ritenta inserendole prima di
+arrendersi). Senza questi due margini di tolleranza, una chiamata
+altrimenti valida (magari proprio quella a `draft_with_finetuned_model`,
+con dentro i fatti veri raccolti) verrebbe scartata in silenzio, il ciclo
+ReAct penserebbe che il modello abbia smesso di voler agire, e scatterebbe
+prematuramente il fallback con pochissimi fatti — vedi anche i due
+controlli difensivi analoghi in `gather_and_draft` (Step 7): recupero del
+nome del tool storpiato e guardia anti-ripetizione.
+
 ```python
 class LocalQwenToolCallingChat(BaseChatModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     hf_model: Any
     hf_tokenizer: Any
-    max_new_tokens: int = 512
+    max_new_tokens: int = 1024
     temperature: float = 0.4
 
     def bind_tools(self, tools, **kwargs):
@@ -863,6 +945,12 @@ class LocalQwenToolCallingChat(BaseChatModel):
   testo a `_extract_tool_calls`.
 - `get_chat_model()`, con `@lru_cache(maxsize=1)`, carica modello e
   tokenizer una sola volta per processo.
+- `max_new_tokens=1024` (alzato da 512): quando il modello ragiona a
+  lungo prima di chiamare `draft_with_finetuned_model` (ripete più
+  "Thought:", riassume i fatti in prosa), la chiamata finale — quella con
+  dentro l'intera lista `facts` — rischia di essere tagliata a metà JSON
+  prima ancora di arrivare a `</tool_call>`, con conseguente perdita
+  silenziosa della chiamata piu' importante del ciclo.
 
 ### `agent/prompts.py` — i due prompt di sistema
 
@@ -900,9 +988,15 @@ formattato. Cose da notare leggendo per intero `_PLANNING_SYSTEM_TEXT` e
   concreti ("Hiking the Alta Via 1 in the Dolomites"), mai una categoria
   generica ("adventure") usata come topic — le categorie sono "lenti"
   tematiche per scegliere un gap, non il topic stesso.
-- Il prompt ReAct descrive un piano d'azione passo-passo (cerca → valuta
-  qualità → verifica coerenza col KG → chiama il tool di drafting), e
-  contiene un blocco anti-allucinazione molto esplicito: ogni fatto
+- Il prompt ReAct descrive un piano d'azione passo-passo (cerca UNA volta →
+  RAG una o due volte, **fonte primaria dei fatti** → al massimo 1-2
+  controlli di qualità → opzionale verifica coerenza col KG → chiama il
+  tool di drafting), con un budget dichiarato di 6-8 tool call e il
+  divieto esplicito di richiamare lo stesso tool ripetutamente su input
+  simili — aggiunto dopo aver osservato run reali in cui il modello locale
+  si bloccava a ri-valutare la qualità di ogni singolo snippet di ricerca
+  senza mai passare al RAG, esaurendo il budget senza raccogliere fatti
+  veri. Contiene anche un blocco anti-allucinazione molto esplicito: ogni fatto
   passato a `draft_with_finetuned_model` **deve** provenire letteralmente
   da un'Observation di un tool vista in questa conversazione, mai
   inventato — con tanto di esempio negativo specifico ("non produrre un
@@ -993,7 +1087,8 @@ def load_kg_context(state):
         "coverage_gaps": kg.get_coverage_gaps(config.TOPIC_CATEGORIES),
         **kg.summary(),
     }
-    log_event("load_kg_context", {"kg_summary": kg_summary})
+    print(f"[load_kg_context] KG: {kg_summary['posts']} post, ... "
+          f"({len(kg_summary['coverage_gaps'])} categorie ancora scoperte)")
     return {"kg_summary": kg_summary}
 ```
 `**kg.summary()` fonde nel dizionario anche `posts`, `topics`, `sources`,
@@ -1017,7 +1112,9 @@ def plan_posts(state):
              "post_type": item.get("post_type") if item.get("post_type") in config.POST_TYPES else "review",
              "justification": item.get("justification", ""), "status": "planned"}
             for i, item in enumerate(raw_plan[:n_posts])]
-    log_event("plan_posts", {"plan": plan})
+    print(f"[plan_posts] piano di {len(plan)} post:")
+    for p in plan:
+        print(f"  - {p['topic']} ({p['post_type']})")
     return {"plan": plan, "current_post_idx": 0}
 ```
 Nota il **fallback deterministico**: se il parsing JSON fallisce per
@@ -1043,8 +1140,10 @@ def gather_and_draft(state):
 
     reasoning_trace, tool_outputs, gathered_facts = [], [], []
     draft_body = None
+    seen_calls = set()  # (tool, args) gia' invocati in questa sessione
 
-    for _ in range(MAX_REACT_STEPS):          # MAX_REACT_STEPS = 8
+    print(f"[gather_and_draft] '{post['topic']}': inizio ciclo ReAct...")
+    for _ in range(MAX_REACT_STEPS):          # MAX_REACT_STEPS = 10
         ai_message = llm.invoke(messages)
         messages.append(ai_message)
         if not ai_message.tool_calls:
@@ -1053,16 +1152,27 @@ def gather_and_draft(state):
         for tool_call in ai_message.tool_calls:
             tool_name, tool_args = tool_call["name"], tool_call["args"]
             tool = TOOLS_BY_NAME.get(tool_name)
+            if tool is None and "facts" in tool_args:
+                tool_name = "draft_with_finetuned_model"       # nome storpiato dal LLM, recuperato
+                tool = TOOLS_BY_NAME.get(tool_name)
+            call_signature = (tool_name, json.dumps(tool_args, sort_keys=True, default=str))
             tool_failed = False
             if tool is None:
                 observation = f"Tool error: unknown tool '{tool_name}'."
                 tool_failed = True
+            elif call_signature in seen_calls:
+                observation = ("You already called this exact tool with these exact arguments "
+                    "... Call draft_with_finetuned_model now with the facts you have gathered so far.")
+                tool_failed = True
             else:
+                seen_calls.add(call_signature)
                 try:
                     observation = tool.invoke(tool_args)
                 except Exception as exc:
                     observation = f"Tool error calling {tool_name} with args {tool_args}: {exc}. ..."
                     tool_failed = True
+
+            print(f"  step {len(reasoning_trace) + 1}: {tool_name}" + (" (fallito)" if tool_failed else ""))
 
             thought = (ai_message.content or "").strip()
             justification = thought or f"Calling {tool_name} with {tool_args} to progress ..."
@@ -1089,9 +1199,12 @@ def gather_and_draft(state):
     citations = _extract_citations(tool_outputs)
     draft = {"topic": post["topic"], "post_type": post["post_type"],
              "title": f"{post['topic']} — {post['post_type'].replace('_', ' ').title()}",
-             "body": draft_body, "citations": citations, "facts_used": gathered_facts}
+             "body": draft_body, "citations": citations, "facts_used": gathered_facts,
+             "reasoning_trace": reasoning_trace}
 
-    log_event("gather_and_draft", {"post": post, "reasoning_trace": reasoning_trace, "draft": draft})
+    tools_used = [step["tool"] for step in reasoning_trace]
+    print(f"[gather_and_draft] '{post['topic']}': {len(reasoning_trace)} step "
+          f"({', '.join(tools_used)}), {len(citations)} citazioni — draft pronto per la revisione")
     return {"messages": messages,
             "reasoning_trace": state.get("reasoning_trace", []) + reasoning_trace,
             "tool_outputs": state.get("tool_outputs", []) + tool_outputs,
@@ -1100,6 +1213,31 @@ def gather_and_draft(state):
             "draft": draft}
 ```
 Punti chiave, in ordine di importanza:
+- **Due margini di tolleranza in più**, oltre a quelli di `_extract_tool_calls`
+  (Step 6), scoperti osservando run reali del modello locale: (1) se il
+  nome del tool non esiste ma gli argomenti contengono `facts`, si assume
+  che il LLM abbia storpiato `draft_with_finetuned_model` (es.
+  `draft_with_facts`) e si recupera comunque la chiamata — è l'unico tool
+  con quella firma di argomenti; (2) `seen_calls` tiene traccia delle
+  coppie (tool, argomenti) già invocate in questa sessione: il modello
+  locale a volte si blocca ripetendo la stessa identica chiamata (es.
+  `rag_retrieval_tool` con la stessa query) invece di procedere al
+  drafting — anziché rieseguirla (rete/tempo sprecati), si risponde con
+  un'Observation che lo spinge esplicitamente verso
+  `draft_with_finetuned_model`.
+- I `print(...)` sono un compromesso deliberato tra due estremi: **una
+  riga per step, in tempo reale** (`step N: tool_name`), cosi' l'utente
+  vede che il ciclo sta lavorando (ogni step comporta una vera chiamata al
+  LLM/tool, puo' richiedere anche decine di secondi — senza nessun output
+  intermedio l'esecuzione sembrerebbe bloccata, specialmente per il
+  secondo post di un piano, quando non c'e' nessun altro output tra
+  `update_kg` del post precedente e questo), **piu' un riassunto finale di
+  una riga**, non un dump del `draft` intero: quest'ultimo contiene anche
+  `reasoning_trace` (le observation di ogni tool, fino a 1000 caratteri
+  l'una) — stamparlo per intero seppellirebbe il blocco pulito
+  `=== DRAFT ===` che `main.py` (Step 8) mostra subito dopo per la
+  revisione umana, rendendo illeggibile proprio il testo che l'utente
+  deve valutare.
 - **Il ciclo `for _ in range(MAX_REACT_STEPS)`** è l'implementazione
   esplicita del pattern ReAct (Step 0): ad ogni iterazione il modello
   produce un `AIMessage` (che può contenere `tool_calls`), e se non ne
@@ -1128,15 +1266,20 @@ Punti chiave, in ordine di importanza:
 - `_extract_citations(tool_outputs)` chiude il cerchio con quanto visto
   sopra: raccoglie tutte le fonti citate nelle Observation di
   `rag_retrieval_tool` durante l'intero ciclo.
-- Da notare la nota nel docstring del file: `state["messages"]` accumula
-  l'intera traccia per tracciabilità, ma **ogni chiamata** di
-  `gather_and_draft` costruisce un prompt fresco (`messages` locale,
-  inizializzato da zero con solo il `SystemMessage` per il post corrente)
-  — non rilegge i messaggi dei post precedenti nel prompt che invia al
-  LLM, per non degradare la qualità del reasoning mescolando contesti di
-  post diversi. Ciò che invece attraversa davvero l'intera sessione, da un
-  post al successivo, sono `kg_summary`, `plan`, `reasoning_trace` e
-  `gathered_facts`.
+- Il `draft` include anche la propria `reasoning_trace` (non solo lo stato
+  cumulativo `state["reasoning_trace"]`): così, quando il post viene
+  approvato e finisce in `approved_posts` (vedi `update_kg` più sotto),
+  porta con sé tutto il necessario per l'analisi post-hoc, senza dover
+  rileggere nulla da un log esterno — è ciò che `evaluate_agent.py`
+  (Step 9) usa direttamente.
+- Da notare: `state["messages"]` accumula l'intera traccia per
+  tracciabilità, ma **ogni chiamata** di `gather_and_draft` costruisce un
+  prompt fresco (`messages` locale, inizializzato da zero con solo il
+  `SystemMessage` per il post corrente) — non rilegge i messaggi dei post
+  precedenti nel prompt che invia al LLM, per non degradare la qualità del
+  reasoning mescolando contesti di post diversi. Ciò che invece
+  attraversa davvero l'intera sessione, da un post al successivo, sono
+  `kg_summary`, `plan`, `reasoning_trace` e `gathered_facts`.
 
 **4. `human_review`** — il punto di sospensione:
 ```python
@@ -1179,7 +1322,7 @@ def update_kg(state):
 
     new_plan = list(plan)
     new_plan[idx] = {**new_plan[idx], "status": "approved"}
-    log_event("update_kg", {"post_id": post_id, "draft": draft})
+    print(f"[update_kg] post_id={post_id} title={draft['title']!r}")
     return {"plan": new_plan, "current_post_idx": idx + 1,
             "approved_posts": state.get("approved_posts", []) + [draft],
             "draft": None, "human_decision": None, "human_feedback": None}
@@ -1266,7 +1409,8 @@ L'entrypoint CLI, il più semplice da leggere dopo aver capito il grafo:
 
 ```python
 def run(n_posts):
-    setup_langsmith()
+    if config.setup_langsmith():
+        print("LangSmith tracing attivo (progetto: blogger-support-agent)")
     app = build_graph()
     thread_config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
@@ -1286,8 +1430,12 @@ def run(n_posts):
         result = app.invoke(Command(resume=decision), config=thread_config)
 
     print(f"\nSession complete. {len(result['approved_posts'])} post(s) approved and written to the Knowledge Graph.")
-    print(f"Full reasoning trace logged to: {current_run_log_path()}")
 ```
+- `config.setup_langsmith()`: attiva il tracing esterno se configurato
+  (Step 2) — l'unica riga aggiunta rispetto a un `run()` "nudo"; il resto
+  della funzione non sa nulla di LangSmith, il tracing è trasparente per
+  il grafo grazie alle variabili d'ambiente lette automaticamente da
+  LangChain.
 - `thread_config` con un `thread_id` univoco: è la chiave con cui il
   `MemorySaver` (Step 7) tiene traccia dello stato di **questa specifica**
   esecuzione — necessario perché `interrupt`/`resume` funzionino
@@ -1336,53 +1484,55 @@ un testo corretto lungo più righe da terminale.
 
 ---
 
-## Step 9 — `observability/` e `evaluate_agent.py`
+## Step 9 — `evaluate_agent.py`
 
-### `observability/tracing.py`
+Due livelli di osservabilità, indipendenti tra loro:
+- Il debug "in diretta" dei nodi del grafo (Step 7: `load_kg_context`,
+  `plan_posts`, `gather_and_draft`, `update_kg`) è affidato a semplici
+  `print(...)` piazzati direttamente nei nodi — utile per seguire
+  l'esecuzione da terminale mentre il programma gira, non c'è un modulo
+  dedicato.
+- **LangSmith** (Step 2, `config.setup_langsmith()`), se una
+  `LANGCHAIN_API_KEY` è configurata: traccia esternamente ogni chiamata
+  al LLM e ai tool con latenza, token usati e l'albero completo
+  Thought/Action/Observation, consultabile sulla dashboard di LangSmith —
+  è il "parametro di osservabilità" più ricco a disposizione, e viene
+  attivato sia da `main.py` sia da `evaluate_agent.py` prima di costruire
+  il grafo.
+
+`evaluate_agent.py` non dipende dai `print` né da nessun file su disco per
+la propria analisi: **esegue l'intero grafo end-to-end in-process**, un
+modo alternativo di lanciare l'agente pensato per la valutazione
+automatica.
 
 ```python
-_RUN_ID = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-_RUN_LOG_PATH = config.RUN_LOGS_DIR / f"run_{_RUN_ID}.jsonl"
+def _run_agent_and_collect_drafts(n_posts):
+    config.setup_langsmith()
+    app = build_graph()
+    thread_config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+    initial_state = {...}  # stessa forma di main.py (Step 8)
 
-def setup_langsmith():
-    if not config.LANGCHAIN_API_KEY:
-        return False
-    os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_API_KEY"] = config.LANGCHAIN_API_KEY
-    os.environ.setdefault("LANGCHAIN_PROJECT", "blogger-support-agent")
-    return True
-
-def log_event(event_type, payload):
-    record = {"timestamp": datetime.now(timezone.utc).isoformat(), "event": event_type, "payload": payload}
-    config.RUN_LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    with _RUN_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, default=str, ensure_ascii=False) + "\n")
+    result = app.invoke(initial_state, config=thread_config)
+    while "__interrupt__" in result:
+        result = app.invoke(Command(resume={"decision": "approve"}), config=thread_config)
+    return result["approved_posts"]
 ```
-Due livelli indipendenti:
-- `log_event` scrive **sempre**, senza bisogno di account, un file JSONL
-  con nome basato sul timestamp di avvio del processo (`_RUN_ID` calcolato
-  una sola volta, all'importazione del modulo — per questo tutti gli
-  eventi di una stessa esecuzione finiscono nello stesso file). È chiamato
-  da `load_kg_context`, `plan_posts`, `gather_and_draft`, `update_kg`
-  (Step 7) per registrare ogni step significativo.
-- `setup_langsmith()` attiva anche il tracing su LangSmith (un servizio
-  esterno di osservabilità per applicazioni LangChain), **solo se**
-  `LANGCHAIN_API_KEY` è presente in `.env` — altrimenti ritorna `False`
-  senza fare nulla. Attivarlo consiste semplicemente nell'impostare
-  variabili d'ambiente che LangChain legge automaticamente al suo interno.
+A differenza di `main.py`, che ad ogni `interrupt` chiede una decisione a
+tastiera, qui si **approva sempre automaticamente** (`{"decision":
+"approve"}`): per valutare l'agente non serve un revisore umano reale, e
+approvare senza modifiche garantisce che l'analisi lavori sul testo
+esattamente come generato dal modello. Ogni elemento di `approved_posts`
+è un `draft` che, come visto nello Step 7, porta già con sé la propria
+`reasoning_trace` — è tutto ciò che serve per l'analisi, senza dover
+rileggere nulla da un log esterno.
 
-### `evaluate_agent.py`
-
-Legge tutti i log JSONL prodotti da `tracing.py` e produce
-`results/evaluation_report.md`. La logica interessante è tutta in
-`_identify_failure_cases`, che applica quattro euristiche automatiche a
-ciascun post analizzato:
+La logica interessante resta tutta in `_identify_failure_cases`, che
+applica quattro euristiche automatiche a ciascun post analizzato:
 
 ```python
 def _looks_like_rating_out_of_five(text):
-    """Vero se `text` contiene un pattern tipo "4/5" o "4 / 5" - i punteggi
-    strutturati del dataset che non dovrebbero mai finire, tali e quali,
-    nel testo generato."""
+    """True se `text` contiene un voto tipo "4/5": segno che il LLM ha
+    copiato un rating dal dataset invece di scrivere testo vero."""
     n = len(text)
     for i, ch in enumerate(text):
         if ch not in "12345":
@@ -1427,15 +1577,18 @@ run log: allucinazione di dati strutturati, assenza di fonti, scarso
 aderenza ai fatti, o esaurimento del budget di ragionamento prima del
 drafting volontario. Il report finale (`results/evaluation_report.md`)
 elenca, per ogni post analizzato, statistiche (numero di step di
-ragionamento, citazioni, grounding score) e la lista dei failure case
-trovati con relativa spiegazione ed evidenza.
+ragionamento, citazioni, grounding score), la lista dei failure case
+trovati con relativa spiegazione ed evidenza, e una sezione finale
+"Observability" che dichiara se LangSmith era attivo per quella run
+(`config.LANGCHAIN_API_KEY` impostata o meno).
 
 **Verifica la comprensione:**
 - Se un post avesse `grounding_score = 0.15` (sotto `LOW_GROUNDING_THRESHOLD = 0.2`)
   ma anche 3 citazioni valide, quanti failure case verrebbero registrati
   per quel post secondo la logica descritta sopra?
-- Perché `log_event` include `config.RUN_LOGS_DIR.mkdir(parents=True, exist_ok=True)`
-  ad ogni chiamata, e non solo una volta all'avvio del programma?
+- Perché `_run_agent_and_collect_drafts` approva sempre automaticamente
+  ogni draft invece di, per esempio, chiedere anche qui una decisione da
+  tastiera come fa `main.py`?
 
 ---
 
@@ -1580,16 +1733,18 @@ documentato in `finetuning/results/final_evaluation.md`.
 ## Come si collega tutto (riepilogo)
 
 ```
-main.py
-  └─ agent/graph.py (build_graph)
+main.py               ─┐  entrambi chiamano config.setup_langsmith()
+evaluate_agent.py     ─┴─ agent/graph.py (build_graph)
        ├─ kg/client.py            (via tools/_shared.get_kg)
        ├─ agent/llm.py + prompts.py
        ├─ tools/ (i 5 tool)
        │    ├─ rag/ (search → fetch → chunk → vectorstore → krag)
        │    └─ finetuning/saved_models/.../  (modello di drafting)
-       └─ observability/tracing.py (log_event ad ogni nodo)
+       ├─ print(...) di debug ad ogni nodo (nessun modulo dedicato)
+       └─ LangSmith (tracing esterno, opzionale — Step 2)
 
-evaluate_agent.py  legge  results/run_logs/*.jsonl
+evaluate_agent.py  esegue il grafo end-to-end, approva ogni draft
+                    automaticamente, e analizza i post ottenuti in memoria
 finetuning/train.py + evaluate.py  producono il modello che finetuned_draft_tool.py usa
 ```
 
@@ -1599,7 +1754,7 @@ finetuning/train.py + evaluate.py  producono il modello che finetuned_draft_tool
 cd /home/sallegra/progetto
 ./runtime/start_neo4j.sh          # se Neo4j non è già avviato
 .venv/bin/python main.py --posts 3
-.venv/bin/python evaluate_agent.py
+.venv/bin/python evaluate_agent.py --posts 3
 ```
 
 ---

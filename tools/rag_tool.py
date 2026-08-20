@@ -10,12 +10,9 @@ from tools._shared import get_kg
 
 @tool
 def rag_retrieval_tool(query: str, topic: str = "") -> str:
-    """Retrieve passages of text from the web that are relevant to `query`,
-    grounded with explicit source citations. If `topic` is given, the query
-    is first expanded using the Knowledge Graph's related topics (K-RAG),
-    so the retrieval also covers content connected to what the blog has
-    already published. Use the returned passages (and their [n] source URL)
-    as the factual basis for the post, and cite them explicitly."""
+    """Retrieve web passages relevant to `query`, with source citations.
+    If `topic` is given, the query is expanded via the Knowledge Graph
+    (K-RAG). Use the returned passages as facts and cite them explicitly."""
     kg = get_kg()
     passages = retrieve_with_citations(query, topic=topic or None, kg=kg)
     if not passages:
@@ -29,5 +26,5 @@ def rag_retrieval_tool(query: str, topic: str = "") -> str:
 
 if __name__ == "__main__":
     # Debug: `python tools/rag_tool.py` esegue la pipeline K-RAG completa
-    # (search -> fetch -> chunk -> embed -> retrieval) su una query reale.
+    # (search -> fetch -> chunk -> embed -> retrieval) su una query reale
     print(rag_retrieval_tool.invoke({"query": "best hiking trails in the Dolomites"}))

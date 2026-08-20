@@ -1,40 +1,51 @@
-"""Valutazione end-to-end dell'agente: legge i run log prodotti da
-observability/tracing.py durante le esecuzioni di `python main.py`
-e ne ricava un'analisi qualitativa (grounding, qualita' delle fonti,
-principali failure case), salvata in results/evaluation_report.md.
+"""Valuta l'agente: fa girare il grafo in-process (approvando i draft
+in automatico) e produce un report di analisi qualitativa.
 
-Uso (da dentro questa cartella):
-    python evaluate_agent.py
+Uso: python evaluate_agent.py [--posts N]
 """
 from __future__ import annotations
 
-import json
+import argparse
+import uuid
+
+from langgraph.types import Command
 
 import config
-from agent.graph import MAX_REACT_STEPS
+from agent.graph import MAX_REACT_STEPS, build_graph
 from finetuning.metrics import grounding_score
 
 LOW_GROUNDING_THRESHOLD = 0.2
 
 
-def _load_all_events() -> list[dict]:
-    events = []
-    for path in sorted(config.RUN_LOGS_DIR.glob("run_*.jsonl")):
-        with path.open(encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    events.append(json.loads(line))
-    return events
+def _run_agent_and_collect_drafts(n_posts: int) -> list[dict]:
+    """Fa girare l'agente end-to-end approvando ogni draft senza chiedere
+    conferma, e ritorna i post approvati con la loro reasoning_trace."""
+    app = build_graph()
+    thread_config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+    initial_state = {
+        "user_input": f"Plan and draft {n_posts} travel blog posts.",
+        "n_posts": n_posts,
+        "messages": [],
+        "reasoning_trace": [],
+        "tool_outputs": [],
+        "kg_summary": {},
+        "plan": [],
+        "current_post_idx": 0,
+        "gathered_facts": [],
+        "draft": None,
+        "human_decision": None,
+        "human_feedback": None,
+        "approved_posts": [],
+    }
+
+    result = app.invoke(initial_state, config=thread_config)
+    while "__interrupt__" in result:
+        result = app.invoke(Command(resume={"decision": "approve"}), config=thread_config)
+    return result["approved_posts"]
 
 
-def _draft_payloads(events: list[dict]) -> list[dict]:
-    return [e["payload"] for e in events if e["event"] == "gather_and_draft"]
-
-
-def _analyze_draft(payload: dict) -> dict:
-    draft = payload["draft"]
-    reasoning_trace = payload["reasoning_trace"]
+def _analyze_draft(draft: dict) -> dict:
+    reasoning_trace = draft["reasoning_trace"]
     facts_used = draft.get("facts_used", [])
     g_score = grounding_score(draft["body"], facts_used) if facts_used else 0.0
     quality_checks = [s for s in reasoning_trace if s["tool"] == "resource_quality_tool"]
@@ -53,10 +64,8 @@ def _analyze_draft(payload: dict) -> dict:
 
 
 def _looks_like_rating_out_of_five(text: str) -> bool:
-    """Vero se `text` contiene un pattern tipo "4/5" o "4 / 5" - i punteggi
-    strutturati del dataset che non dovrebbero mai finire, tali e quali,
-    nel testo generato (segno che il LLM li ha copiati invece di scrivere
-    prosa a partire dai fatti)."""
+    """True se `text` contiene un voto tipo "4/5": segno che il LLM ha
+    copiato un rating dal dataset invece di scrivere testo vero."""
     n = len(text)
     for i, ch in enumerate(text):
         if ch not in "12345":
@@ -135,20 +144,16 @@ def _identify_failure_cases(analyses: list[dict]) -> list[dict]:
 
 
 def main() -> None:
-    events = _load_all_events()
-    if not events:
-        print(
-            f"No run logs found in {config.RUN_LOGS_DIR}. "
-            "Run 'python main.py' at least once first."
-        )
-        return
+    parser = argparse.ArgumentParser(description="Blogger Support Agent evaluation")
+    parser.add_argument("--posts", type=int, default=3, help="Number of posts to plan, draft and evaluate.")
+    args = parser.parse_args()
 
-    draft_payloads = _draft_payloads(events)
-    analyses = [_analyze_draft(p) for p in draft_payloads]
+    drafts = _run_agent_and_collect_drafts(args.posts)
+    analyses = [_analyze_draft(d) for d in drafts]
     failures = _identify_failure_cases(analyses)
 
     lines = ["# Agent evaluation report\n"]
-    lines.append(f"Analyzed {len(analyses)} drafted post(s) across {len(list(config.RUN_LOGS_DIR.glob('run_*.jsonl')))} run log(s).\n")
+    lines.append(f"Analyzed {len(analyses)} drafted post(s) from a fresh end-to-end run (--posts {args.posts}).\n")
 
     lines.append("## Qualitative analysis of generated posts\n")
     for a in analyses:
@@ -172,15 +177,20 @@ def main() -> None:
             lines.append(f"- Reason: {f['reason']}")
             lines.append(f"- Evidence: {f['evidence']}\n")
     else:
-        lines.append("No failure cases were detected by the automated heuristics in the available run logs.\n")
+        lines.append("No failure cases were detected by the automated heuristics in this run.\n")
 
     lines.append("## Observability\n")
-    lines.append(
-        "- Local structured run logs (Thought/Action/Observation, tool outputs, KG summaries, "
-        f"plan): {config.RUN_LOGS_DIR}/run_*.jsonl (always on, no account required).\n"
-        "- LangSmith tracing: enabled automatically if LANGCHAIN_API_KEY is set in .env "
-        "(see observability/tracing.py)."
-    )
+    if config.LANGCHAIN_API_KEY:
+        lines.append(
+            "- LangSmith tracing was active for this run (project: blogger-support-agent). "
+            "Per-step latency, token usage and the full Thought/Action/Observation trace are "
+            "available at https://smith.langchain.com."
+        )
+    else:
+        lines.append(
+            "- LangSmith tracing was NOT active for this run (no LANGCHAIN_API_KEY in .env). "
+            "Set it to get per-step latency/token observability parameters."
+        )
 
     config.EVAL_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     config.EVAL_REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")

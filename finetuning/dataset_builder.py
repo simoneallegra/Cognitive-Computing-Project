@@ -1,15 +1,8 @@
 """Costruisce il dataset di fine-tuning per il draft generator: dato un
-elenco di fatti (quelli che il K-RAG/KG avrebbero recuperato), il modello
-deve generare il testo del post.
+elenco di fatti, il modello deve imparare a generare il post
 
-Riusa i generatori euristici gia' scritti in dataset_generation/ (root del
-progetto): quei testi sono per costruzione coerenti con i dati strutturati
-della destinazione, quindi possono fare da completion supervisionata per
-un prompt che elenca esplicitamente quei fatti.
-
-A differenza del dataset originale (Happy46/travel-posts, prompt generico
-senza contesto) qui il prompt contiene sempre i fatti, perche' il tool
-risultante verra' usato dall'agente con quelli recuperati da internet.
+Riusa i generatori euristici di dataset_generation/ come completion
+supervisionata, associata a un prompt che elenca esplicitamente i fatti
 """
 from __future__ import annotations
 
@@ -19,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -108,7 +101,7 @@ def build_examples(destinations: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def split_dataset(examples: list[dict[str, Any]]) -> DatasetDict:
-    """Split 80/10/10 in train/validation/test."""
+    """Divide il dataset 80/10/10 in train/validation/test."""
     dataset = Dataset.from_list(examples)
     train_test = dataset.train_test_split(test_size=0.2, seed=SEED)
     val_test = train_test["test"].train_test_split(test_size=0.5, seed=SEED)

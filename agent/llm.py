@@ -1,17 +1,15 @@
-"""Factory per il LLM 'cervello' dell'agente: modello Qwen2.5-Instruct
-eseguito localmente su GPU (nessuna chiamata a API a pagamento).
+"""Wrapper per far girare Qwen2.5-Instruct in locale su GPU come chat
+model LangChain, tool-calling incluso.
 
-`langchain_huggingface.ChatHuggingFace` con backend "pipeline" (locale) non
-inoltra lo schema dei tool al chat template - lo fa solo il backend
-"endpoint" (Inference API a pagamento). Il chat template di Qwen2.5 gestisce
-il tool-calling emettendo blocchi XML `<tool_call>{"name": ..., "arguments":
-...}</tool_call>`: questo wrapper applica il template passando `tools=` e
-riconverte quei blocchi nel formato `AIMessage.tool_calls` atteso da
-LangGraph, cosi' il ciclo ReAct in agent/graph.py funziona anche in locale.
+Il backend locale di HuggingFace non gestisce da solo i tool_calls come fa
+l'Inference API a pagamento: Qwen2.5 li emette come blocchi XML
+`<tool_call>{...}</tool_call>` nel testo generato, e qui li riconvertiamo
+a mano nel formato `AIMessage.tool_calls` che LangGraph si aspetta
 """
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from functools import lru_cache
 from typing import Any, Sequence
@@ -30,11 +28,32 @@ import config
 
 _TOOL_CALL_OPEN = "<tool_call>"
 _TOOL_CALL_CLOSE = "</tool_call>"
+_MISSING_COMMA_RE = re.compile(r'"\s+"')
+
+
+def _parse_tool_call_json(payload_text: str) -> dict[str, Any] | None:
+    """Prova a fare il parse del JSON del tool_call. Il modello a volte
+    dimentica la virgola tra due stringhe consecutive di un array (es. la
+    lista `facts`): come secondo tentativo la si inserisce a mano invece
+    di scartare una chiamata altrimenti valida."""
+    for candidate in (payload_text, _MISSING_COMMA_RE.sub('", "', payload_text)):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return None
 
 
 def _extract_tool_calls(text: str) -> tuple[list[dict[str, Any]], str]:
-    """Estrae ogni blocco <tool_call>{...}</tool_call> emesso dal modello e
-    ritorna (tool_calls, testo_restante_senza_quei_blocchi)."""
+    """Estrae i blocchi <tool_call>{...}</tool_call> dal testo generato.
+
+    Il modello a volte si ferma subito dopo il JSON, senza emettere
+    </tool_call> (fine naturale della generazione, non troncamento per
+    budget di token): in quel caso il payload si considera chiuso al
+    prossimo <tool_call> successivo (se il modello ne ha aperto un altro,
+    es. auto-correggendosi a meta' risposta) o a fine testo, invece di
+    scartare la chiamata in silenzio e far sembrare che il modello non
+    volesse più agire."""
     tool_calls: list[dict[str, Any]] = []
     remaining = text
     cursor = 0
@@ -43,13 +62,15 @@ def _extract_tool_calls(text: str) -> tuple[list[dict[str, Any]], str]:
         if start == -1:
             break
         end = remaining.find(_TOOL_CALL_CLOSE, start)
-        if end == -1:
-            break
-        payload_text = remaining[start + len(_TOOL_CALL_OPEN) : end].strip()
-        try:
-            payload = json.loads(payload_text)
-        except json.JSONDecodeError:
-            cursor = end + len(_TOOL_CALL_CLOSE)
+        if end != -1:
+            payload_end = end
+        else:
+            next_open = remaining.find(_TOOL_CALL_OPEN, start + len(_TOOL_CALL_OPEN))
+            payload_end = next_open if next_open != -1 else len(remaining)
+        payload_text = remaining[start + len(_TOOL_CALL_OPEN) : payload_end].strip()
+        payload = _parse_tool_call_json(payload_text)
+        if payload is None:
+            cursor = (end + len(_TOOL_CALL_CLOSE)) if end != -1 else payload_end
             continue
         tool_calls.append(
             {
@@ -59,7 +80,8 @@ def _extract_tool_calls(text: str) -> tuple[list[dict[str, Any]], str]:
                 "type": "tool_call",
             }
         )
-        remaining = remaining[:start] + remaining[end + len(_TOOL_CALL_CLOSE) :]
+        close_at = (end + len(_TOOL_CALL_CLOSE)) if end != -1 else payload_end
+        remaining = remaining[:start] + remaining[close_at:]
     return tool_calls, remaining.strip()
 
 
@@ -80,14 +102,14 @@ def _message_to_dict(message: BaseMessage) -> dict[str, Any]:
 
 
 class LocalQwenToolCallingChat(BaseChatModel):
-    """Chat model locale (transformers + GPU) con parsing manuale del
-    tool-calling secondo il chat template nativo di Qwen2.5."""
+    """Chat model locale (transformers + GPU) con parsing manuale dei
+    tool-calling di Qwen2.5."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     hf_model: Any
     hf_tokenizer: Any
-    max_new_tokens: int = 512
+    max_new_tokens: int = 1024
     temperature: float = 0.4
 
     @property
@@ -145,7 +167,7 @@ def get_chat_model() -> LocalQwenToolCallingChat:
 if __name__ == "__main__":
     # Debug: `python agent/llm.py` prima verifica _extract_tool_calls con
     # dati finti (istantaneo, nessun modello caricato), poi carica il
-    # modello vero e verifica che il tool-calling funzioni end-to-end.
+    # modello vero e verifica che il tool-calling funzioni end-to-end
     print("--- test _extract_tool_calls (senza modello) ---")
     fake_text = (
         'Thought: devo cercare.\n<tool_call>\n'
