@@ -14,9 +14,9 @@ _INTERESTINGNESS_MARKERS = (
 )
 
 
-def score_resource(text: str, url: str = "") -> tuple[float, list[str]]:
+def score_resource(text: str, url: str = ""):
     score = 0.5
-    reasons: list[str] = []
+    reasons = []
     text_lower = text.lower()
 
     word_count = len(text.split())
@@ -27,19 +27,34 @@ def score_resource(text: str, url: str = "") -> tuple[float, list[str]]:
         score -= 0.2
         reasons.append("very short / snippet-only content")
 
-    if any(k in text_lower for k in _RECENCY_KEYWORDS):
+    has_recency_signal = False
+    for k in _RECENCY_KEYWORDS:
+        if k in text_lower:
+            has_recency_signal = True
+            break
+    if has_recency_signal:
         score += 0.15
         reasons.append("contains recency signals")
 
     domain = urlparse(url).netloc if url else ""
-    if any(d in domain for d in _LOW_TRUST_DOMAINS):
+    is_low_trust = False
+    for d in _LOW_TRUST_DOMAINS:
+        if d in domain:
+            is_low_trust = True
+            break
+    if is_low_trust:
         score -= 0.25
         reasons.append(f"low-trust domain ({domain})")
     elif domain:
         score += 0.05
         reasons.append(f"identifiable source domain ({domain})")
 
-    if any(m in text_lower for m in _INTERESTINGNESS_MARKERS):
+    has_interestingness_marker = False
+    for m in _INTERESTINGNESS_MARKERS:
+        if m in text_lower:
+            has_interestingness_marker = True
+            break
+    if has_interestingness_marker:
         score += 0.1
         reasons.append("contains 'interestingness' markers")
 

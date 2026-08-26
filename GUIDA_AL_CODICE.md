@@ -178,7 +178,21 @@ class BlogAgentState(TypedDict):
 
     # --- storico dei post approvati nella sessione ---
     approved_posts: list[Draft]
+
+
+def initial_state(n_posts: int) -> BlogAgentState:
+    return {
+        "user_input": f"Plan and draft {n_posts} travel blog posts.",
+        "n_posts": n_posts, "messages": [], "reasoning_trace": [], "tool_outputs": [],
+        "kg_summary": {}, "plan": [], "current_post_idx": 0, "gathered_facts": [],
+        "draft": None, "human_decision": None, "human_feedback": None, "approved_posts": [],
+    }
 ```
+`initial_state(n_posts)` è la fabbrica dello stato di partenza: un valore
+per ognuna delle 13 chiavi di `BlogAgentState`, nessuna omessa (LangGraph
+non assume default impliciti). Vive qui, non duplicata in `main.py` e
+`evaluate_agent.py` (Step 8-9): entrambi la chiamano invece di ricopiare
+lo stesso dizionario due volte.
 
 **Cosa notare, campo per campo:**
 - `TypedDict` è solo un dizionario Python normale a runtime — le
@@ -449,6 +463,14 @@ il claim alla fonte che lo supporta.
 - **`get_related_context(topic, limit=5)`**: trova post precedenti sullo
   stesso topic *o* su topic collegati da `RELATED_TO`, per garantire
   coerenza in fase di drafting.
+- **`get_all_topics()`**: tutti i topic mai associati a un post pubblicato,
+  senza limite di recenza — a differenza di `get_recent_topics` (che guarda
+  solo agli ultimi `limit`), è la base del controllo *hard* anti-duplicati
+  in `plan_posts` (Step 7): `get_recent_topics`/`coverage_gaps` sono solo un
+  suggerimento nel prompt di planning, che il LLM potrebbe ignorare;
+  `get_all_topics()` alimenta invece un filtro che scarta o sostituisce
+  qualunque topic pianificato identico a uno già pubblicato, a prescindere
+  da cosa fa il LLM.
 - **`expand_query_topics(topic, limit=5)`**: topic collegati a uno dato —
   è il pezzo "K" di "K-RAG" (Step 5): il retrieval userà questi topic per
   allargare la query di ricerca.
@@ -497,7 +519,7 @@ REACT_TOOLS = [
 ### `tools/_shared.py` — risorse condivise, inizializzate pigramente
 
 ```python
-_kg_instance: KnowledgeGraph | None = None
+_kg_instance = None
 
 def get_kg() -> KnowledgeGraph:
     global _kg_instance
@@ -574,16 +596,21 @@ def kg_query_tool(action: str, topic: str = "") -> str:
 
 
 def update_knowledge_graph(kg, post_id, title, post_type, topic, summary="",
-                            related_topics=None, sources=None, claims=None):
+                            related_topics=None, sources=None, facts=None):
     kg.add_post(post_id, title, post_type, summary)
     kg.link_post_topic(post_id, topic)
     for related in related_topics or []:
         kg.link_topics_related(topic, related)
     for url in sources or []:
         kg.link_post_source(post_id, url)
-    for i, claim_text in enumerate(claims or []):
-        source_url = sources[i] if sources and i < len(sources) else None
+    for i, fact in enumerate(facts or []):
+        claim_text = fact.get("text", "")
+        if not claim_text:
+            continue
+        source_url = fact.get("source_url") or None
         kg.add_claim(post_id, f"{post_id}_claim_{i}", claim_text, source_url=source_url)
+        if source_url:
+            kg.link_post_source(post_id, source_url)
 ```
 - `kg_query_tool` è decorato con `@tool`: un semplice dispatcher su
   `action`, che chiama il metodo giusto di `KnowledgeGraph` (Step 3) e
@@ -596,6 +623,12 @@ def update_knowledge_graph(kg, post_id, title, post_type, topic, summary="",
   lasciare quella decisione al giudizio del LLM dentro un ciclo ReAct
   sarebbe rischioso (potrebbe scrivere troppo presto, o dimenticarsene).
   Meglio renderla deterministica e fuori dal controllo del modello.
+- `facts` è la lista di `RetrievedFact` raccolta in `gather_and_draft`
+  (Step 7): ogni fatto porta già la propria `source_url`, estratta dal
+  marcatore `"(source: URL)"` inline nel testo del fatto stesso
+  (`agent/graph.py:_split_fact_source`) — niente più accoppiamento per
+  indice con una lista di source separata, che poteva lasciare un claim
+  senza fonte quando le due liste avevano lunghezze diverse.
 - Nota come costruisce gli id dei claim: `f"{post_id}_claim_{i}"` — un id
   leggibile derivato dall'indice nella lista, non un UUID separato.
 
@@ -606,10 +639,14 @@ def score_resource(text, url=""):
     ...
     if word_count >= 150: score += 0.15       # contenuto sostanzioso
     elif word_count < 40: score -= 0.2        # troppo corto
-    if any(k in text_lower for k in _RECENCY_KEYWORDS): score += 0.15
-    if any(d in domain for d in _LOW_TRUST_DOMAINS): score -= 0.25
-    elif domain: score += 0.05
-    if any(m in text_lower for m in _INTERESTINGNESS_MARKERS): score += 0.1
+
+    has_recency_signal = False
+    for k in _RECENCY_KEYWORDS:
+        if k in text_lower:
+            has_recency_signal = True
+            break
+    if has_recency_signal: score += 0.15
+    ...                                        # stesso schema (loop + flag) per dominio e "interestingness"
     return max(0.0, min(1.0, score)), reasons
 ```
 Parte da 0.5 (neutro) e aggiusta in base a: lunghezza del testo, presenza
@@ -795,8 +832,11 @@ def retrieve_with_citations(query, topic=None, kg=None, max_sources=4, k=5):
     if index is None:
         return []
     retrieved = get_retriever(index, k=k).invoke(query)
-    return [{"text": doc.page_content, "source_url": doc.metadata.get("source_url", ""),
-             "source_title": doc.metadata.get("source_title", "")} for doc in retrieved]
+    passages = []
+    for doc in retrieved:
+        passages.append({"text": doc.page_content, "source_url": doc.metadata.get("source_url", ""),
+                          "source_title": doc.metadata.get("source_title", "")})
+    return passages
 ```
 - `expand_query`: se c'è un `topic` e un'istanza KG, aggiunge alla query
   testuale i nomi dei topic correlati tra parentesi — un modo semplice ma
@@ -911,12 +951,16 @@ class LocalQwenToolCallingChat(BaseChatModel):
     temperature: float = 0.4
 
     def bind_tools(self, tools, **kwargs):
-        formatted_tools = [convert_to_openai_tool(t) for t in tools]
+        formatted_tools = []
+        for t in tools:
+            formatted_tools.append(convert_to_openai_tool(t))
         return super().bind(tools=formatted_tools, **kwargs)
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         tools = kwargs.get("tools")
-        message_dicts = [_message_to_dict(m) for m in messages]
+        message_dicts = []
+        for m in messages:
+            message_dicts.append(_message_to_dict(m))
         prompt = self.hf_tokenizer.apply_chat_template(
             message_dicts, tools=tools, tokenize=False, add_generation_prompt=True)
         inputs = self.hf_tokenizer(prompt, return_tensors="pt").to(self.hf_model.device)
@@ -1085,6 +1129,7 @@ def load_kg_context(state):
     kg_summary = {
         "recent_topics": kg.get_recent_topics(),
         "coverage_gaps": kg.get_coverage_gaps(config.TOPIC_CATEGORIES),
+        "all_topics": kg.get_all_topics(),
         **kg.summary(),
     }
     print(f"[load_kg_context] KG: {kg_summary['posts']} post, ... "
@@ -1093,9 +1138,41 @@ def load_kg_context(state):
 ```
 `**kg.summary()` fonde nel dizionario anche `posts`, `topics`, `sources`,
 `claims`. Primo nodo, eseguito una volta sola all'inizio della sessione.
+`all_topics` (Step 3) alimenta il controllo hard anti-duplicati di
+`plan_posts`, sotto.
 
-**2. `plan_posts`** — chiama il LLM e produce il piano:
+**2. `plan_posts`** — chiama il LLM, produce il piano e lo filtra contro i
+topic già pubblicati:
 ```python
+def _dedupe_plan(plan, all_topics, coverage_gaps):
+    existing = set()
+    for t in all_topics:
+        existing.add(_normalize_topic(t))
+
+    replacement_candidates = []
+    for t in coverage_gaps:
+        if _normalize_topic(t) not in existing:
+            replacement_candidates.append(t)
+    replacements = iter(replacement_candidates)
+
+    deduped = []
+    seen = set()
+    for item in plan:
+        key = _normalize_topic(item["topic"])
+        if key in existing or key in seen:
+            replacement = next(replacements, None)
+            if replacement is None:
+                continue  # nessuna categoria di ricambio: il post viene scartato
+            item = {**item, "topic": replacement,
+                    "justification": f"{item['justification']} (topic duplicato, sostituito)"}
+            key = _normalize_topic(item["topic"])
+            if key in seen:
+                continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
 def plan_posts(state):
     n_posts = state.get("n_posts", 3)
     llm = get_chat_model()
@@ -1105,13 +1182,20 @@ def plan_posts(state):
         raw_plan = _parse_plan_json(response.content)
     except (json.JSONDecodeError, TypeError, ValueError):
         fallback_topics = state["kg_summary"].get("coverage_gaps") or config.TOPIC_CATEGORIES
-        raw_plan = [{"topic": t, "post_type": "review",
-                     "justification": "Fallback: planner output was not valid JSON; using a coverage gap."}
-                    for t in fallback_topics[:n_posts]]
-    plan = [{"topic": item.get("topic", f"Untitled topic {i}"),
-             "post_type": item.get("post_type") if item.get("post_type") in config.POST_TYPES else "review",
-             "justification": item.get("justification", ""), "status": "planned"}
-            for i, item in enumerate(raw_plan[:n_posts])]
+        raw_plan = []
+        for topic in fallback_topics[:n_posts]:
+            raw_plan.append({"topic": topic, "post_type": "review",
+                "justification": "Fallback: planner output was not valid JSON; using a coverage gap."})
+
+    plan = []
+    for i, item in enumerate(raw_plan[:n_posts]):
+        post_type = item.get("post_type") if item.get("post_type") in config.POST_TYPES else "review"
+        plan.append({"topic": item.get("topic", f"Untitled topic {i}"), "post_type": post_type,
+                      "justification": item.get("justification", ""), "status": "planned"})
+
+    plan = _dedupe_plan(plan, all_topics=state["kg_summary"].get("all_topics", []),
+                         coverage_gaps=state["kg_summary"].get("coverage_gaps") or list(config.TOPIC_CATEGORIES))
+
     print(f"[plan_posts] piano di {len(plan)} post:")
     for p in plan:
         print(f"  - {p['topic']} ({p['post_type']})")
@@ -1126,6 +1210,20 @@ LLM) può fallire, e il codice deve avere un percorso alternativo pronto.
 Nota anche la validazione riga per riga di `post_type`: se il LLM
 inventasse un tipo non previsto, viene silenziosamente sostituito con
 `"review"`.
+
+`_dedupe_plan` è il **controllo hard anti-duplicati**: il prompt di
+planning (`agent/prompts.py`) istruisce già il LLM a evitare topic recenti
+e a preferire i `coverage_gaps`, ma è solo un suggerimento — il LLM può
+ignorarlo o proporre lo stesso topic due volte nello stesso piano.
+`_dedupe_plan` confronta ogni topic pianificato (normalizzato con
+`_normalize_topic`: `strip().casefold()`, per non farsi ingannare da
+maiuscole/spazi) contro `all_topics` (tutto lo storico del KG, non solo i
+`recent_topics` mostrati al LLM) *e* contro i topic già visti nello stesso
+piano. Un duplicato viene sostituito con la prossima categoria di
+`coverage_gaps` ancora libera; se le categorie di ricambio finiscono, il
+post duplicato viene semplicemente scartato — per questo il piano finale
+può avere meno di `n_posts` elementi (gestito da `route_after_update`, più
+sotto, che itera su `len(state["plan"])` e non su `n_posts`).
 
 **3. `gather_and_draft`** — il nodo più complesso, il ciclo ReAct:
 ```python
@@ -1189,29 +1287,50 @@ def gather_and_draft(state):
         if draft_body is not None:
             break
 
+    facts_used_for_draft = gathered_facts
     if draft_body is None:
         facts_fallback = gathered_facts or [f"Topic: {post['topic']}", f"Post type: {post['post_type']}"]
         draft_body = draft_with_finetuned_model.invoke(
             {"topic": post["topic"], "post_type": post["post_type"], "facts": facts_fallback})
-        gathered_facts = facts_fallback
+        facts_used_for_draft = facts_fallback
         reasoning_trace.append({...})  # traccia esplicita del fallback
 
     citations = _extract_citations(tool_outputs)
     draft = {"topic": post["topic"], "post_type": post["post_type"],
              "title": f"{post['topic']} — {post['post_type'].replace('_', ' ').title()}",
-             "body": draft_body, "citations": citations, "facts_used": gathered_facts,
+             "body": draft_body, "citations": citations, "facts_used": facts_used_for_draft,
              "reasoning_trace": reasoning_trace}
 
-    tools_used = [step["tool"] for step in reasoning_trace]
+    tools_used = []
+    for step in reasoning_trace:
+        tools_used.append(step["tool"])
     print(f"[gather_and_draft] '{post['topic']}': {len(reasoning_trace)} step "
           f"({', '.join(tools_used)}), {len(citations)} citazioni — draft pronto per la revisione")
     return {"messages": messages,
             "reasoning_trace": state.get("reasoning_trace", []) + reasoning_trace,
             "tool_outputs": state.get("tool_outputs", []) + tool_outputs,
-            "gathered_facts": [{"text": f, "source_url": "", "source_title": "", "quality_score": 0.0}
-                                for f in gathered_facts],
+            "gathered_facts": _facts_with_sources(facts_used_for_draft),
             "draft": draft}
 ```
+`_facts_with_sources` (definita accanto a `_extract_citations`) converte
+ogni fatto grezzo in un `RetrievedFact`, estraendo la `source_url` dal
+marcatore `"(source: URL)"` inline nel testo stesso del fatto
+(`_split_fact_source`) — non più accoppiata per posizione a una lista di
+citazioni separata, come succedeva in una versione precedente: quello
+schema poteva lasciare un claim senza fonte se le due liste (fatti e
+citazioni) avevano lunghezze diverse.
+
+Da notare `facts_used_for_draft` come variabile separata da
+`gathered_facts`: nel ramo di fallback, `topic`/`post_type` sono metadati
+del post (già scritti come proprietà del nodo `Post` da `add_post`), non
+fatti estratti da una fonte — servono solo a dare a
+`draft_with_finetuned_model` qualcosa da scrivere quando il budget ReAct si
+esaurisce senza aver raccolto nulla di vero. Tenerli fuori da
+`gathered_facts` evita che finiscano nel KG come `Claim` fasulli quando
+`update_kg` (più sotto) li scrive: `facts_used_for_draft` resta comunque
+visibile in `draft["facts_used"]`, per la valutazione (`evaluate_agent.py`,
+Step 9) — che così vede correttamente "zero fatti reali raccolti" invece di
+un dato inquinato.
 Punti chiave, in ordine di importanza:
 - **Due margini di tolleranza in più**, oltre a quelli di `_extract_tool_calls`
   (Step 6), scoperti osservando run reali del modello locale: (1) se il
@@ -1312,13 +1431,20 @@ def update_kg(state):
     post_id = str(uuid.uuid4())
     plan, idx = state["plan"], state["current_post_idx"]
 
-    related_topics = [p["topic"] for i, p in enumerate(plan) if i != idx and p["status"] == "approved"]
-    source_urls = [c["url"] for c in draft.get("citations", []) if c.get("url")]
-    claims = [f["text"] for f in state.get("gathered_facts", [])]
+    related_topics = []
+    for i, p in enumerate(plan):
+        if i != idx and p["status"] == "approved":
+            related_topics.append(p["topic"])
+
+    source_urls = []
+    for c in draft.get("citations", []):
+        if c.get("url"):
+            source_urls.append(c["url"])
 
     update_knowledge_graph(kg, post_id=post_id, title=draft["title"], post_type=draft["post_type"],
                             topic=draft["topic"], summary=draft["body"][:300],
-                            related_topics=related_topics, sources=source_urls, claims=claims)
+                            related_topics=related_topics, sources=source_urls,
+                            facts=state.get("gathered_facts", []))
 
     new_plan = list(plan)
     new_plan[idx] = {**new_plan[idx], "status": "approved"}
@@ -1413,15 +1539,7 @@ def run(n_posts):
         print("LangSmith tracing attivo (progetto: blogger-support-agent)")
     app = build_graph()
     thread_config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-
-    initial_state = {
-        "user_input": f"Plan and draft {n_posts} travel blog posts.",
-        "n_posts": n_posts, "messages": [], "reasoning_trace": [], "tool_outputs": [],
-        "kg_summary": {}, "plan": [], "current_post_idx": 0, "gathered_facts": [],
-        "draft": None, "human_decision": None, "human_feedback": None, "approved_posts": [],
-    }
-
-    result = app.invoke(initial_state, config=thread_config)
+    result = app.invoke(state.initial_state(n_posts), config=thread_config)
 
     while "__interrupt__" in result:
         interrupt_payload = result["__interrupt__"][0].value
@@ -1440,8 +1558,11 @@ def run(n_posts):
   `MemorySaver` (Step 7) tiene traccia dello stato di **questa specifica**
   esecuzione — necessario perché `interrupt`/`resume` funzionino
   correttamente anche se, in teoria, più sessioni girassero in parallelo.
-- `initial_state` deve fornire un valore per **ogni** chiave di
-  `BlogAgentState` (Step 1) — LangGraph non assume default impliciti.
+- `state.initial_state(n_posts)` (in `state.py`, Step 1) costruisce lo
+  stato iniziale, con un valore per **ogni** chiave di `BlogAgentState` —
+  LangGraph non assume default impliciti. È una funzione condivisa: sia
+  `main.py` che `evaluate_agent.py` (Step 9) partono da qui, invece di
+  duplicare lo stesso dizionario di 13 campi in entrambi i file.
 - Il ciclo `while "__interrupt__" in result` è l'altro lato di
   `interrupt()` visto in `human_review`: ogni volta che il grafo si ferma,
   `result` contiene quella chiave speciale con il payload passato a
@@ -1510,9 +1631,7 @@ def _run_agent_and_collect_drafts(n_posts):
     config.setup_langsmith()
     app = build_graph()
     thread_config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-    initial_state = {...}  # stessa forma di main.py (Step 8)
-
-    result = app.invoke(initial_state, config=thread_config)
+    result = app.invoke(state.initial_state(n_posts), config=thread_config)
     while "__interrupt__" in result:
         result = app.invoke(Command(resume={"decision": "approve"}), config=thread_config)
     return result["approved_posts"]
@@ -1530,35 +1649,19 @@ La logica interessante resta tutta in `_identify_failure_cases`, che
 applica quattro euristiche automatiche a ciascun post analizzato:
 
 ```python
+_RATING_OUT_OF_FIVE_RE = re.compile(r"(?<!\w)[1-5]\s*/\s*5(?!\w)")
+
 def _looks_like_rating_out_of_five(text):
     """True se `text` contiene un voto tipo "4/5": segno che il LLM ha
     copiato un rating dal dataset invece di scrivere testo vero."""
-    n = len(text)
-    for i, ch in enumerate(text):
-        if ch not in "12345":
-            continue
-        if i > 0 and text[i - 1].isalnum():
-            continue
-        j = i + 1
-        while j < n and text[j].isspace():
-            j += 1
-        if j >= n or text[j] != "/":
-            continue
-        j += 1
-        while j < n and text[j].isspace():
-            j += 1
-        if j < n and text[j] == "5" and (j + 1 >= n or not text[j + 1].isalnum()):
-            return True
-    return False
+    return bool(_RATING_OUT_OF_FIVE_RE.search(text))
 ```
-Scandisce il testo carattere per carattere cercando un pattern "cifra 1-5"
-+ "/" (con spazi opzionali intorno) + "5", con controlli di confine di
-parola manuali (niente prima/dopo che sia alfanumerico) — implementato
-senza regex, scorrendo indici a mano. Se il testo del draft contiene
-qualcosa come "4/5", è quasi certamente un rating copiato dal formato
-strutturato del dataset di training (Step 10), non un fatto realmente
-osservato in una fonte web — il che è esattamente ciò che il prompt ReAct
-(Step 6) proibiva esplicitamente.
+Un pattern "cifra 1-5" + "/" (spazi opzionali) + "5", con controlli di
+confine di parola (`(?<!\w)`/`(?!\w)`, per non far scattare falsi positivi
+su "14/5" o "4/50") — se il testo del draft contiene qualcosa come "4/5",
+è quasi certamente un rating copiato dal formato strutturato del dataset
+di training (Step 10), non un fatto realmente osservato in una fonte web —
+esattamente ciò che il prompt ReAct (Step 6) proibiva esplicitamente.
 
 ```python
 def _identify_failure_cases(analyses):
@@ -1569,18 +1672,28 @@ def _identify_failure_cases(analyses):
         # 3. grounding_score sotto soglia -> il testo non riflette i fatti raccolti
         # 4. ultimo step di reasoning_trace menziona "fallback" -> budget ReAct esaurito
         # + per ogni step: se un tool ha restituito un risultato vuoto, lo segnala come evidenza
+        ...
+        failures.append({"topic": a["topic"], "code": "...", "evidence": ...})
     return failures
 ```
 Le quattro euristiche (qui riassunte, il codice completo è nel file) danno
 una diagnostica automatica senza bisogno di rileggere manualmente ogni
-run log: allucinazione di dati strutturati, assenza di fonti, scarso
+run log: allucinazione di dati strutturati, assenza di fonti, scarsa
 aderenza ai fatti, o esaurimento del budget di ragionamento prima del
-drafting volontario. Il report finale (`results/evaluation_report.md`)
-elenca, per ogni post analizzato, statistiche (numero di step di
-ragionamento, citazioni, grounding score), la lista dei failure case
-trovati con relativa spiegazione ed evidenza, e una sezione finale
-"Observability" che dichiara se LangSmith era attivo per quella run
-(`config.LANGCHAIN_API_KEY` impostata o meno).
+drafting volontario. Ogni failure case è un record di **sole tre chiavi**:
+`topic`, `code` (una stringa breve da un vocabolario fisso — `fabricated_facts`,
+`no_citations`, `low_grounding`, `budget_exhausted`, `empty_tool_result`) ed
+`evidence` (un **dato grezzo**: un numero, una lista, un nome di tool — mai
+una frase in inglese che lo spiega). Scelta deliberata: niente prosa da
+generare o mantenere, il report resta puramente dati.
+
+Il report finale (`results/evaluation_report.md`) è costruito da
+`_report(analyses, failures, n_posts)` come **due tabelle Markdown** (post
+analizzati con le loro metriche; failure case con `topic`/`code`/`evidence`)
+più due righe di media (`avg_grounding`, `avg_citations`) e una riga finale
+`langsmith_active: True/False` per l'osservabilità — nessun paragrafo
+discorsivo, solo numeri e stringhe corte pronte per essere lette a colpo
+d'occhio o incollate in una tabella della relazione.
 
 **Verifica la comprensione:**
 - Se un post avesse `grounding_score = 0.15` (sotto `LOW_GROUNDING_THRESHOLD = 0.2`)
@@ -1659,7 +1772,11 @@ def main():
     final_result, final_model, final_tokenizer = run_config(              # 3. retraining finale
         best_hp, tokenized, raw_dataset["validation"], save_dir=config.FT_FINAL_MODEL_DIR)
 
-    log = {"baseline": asdict(baseline_result), "sweep": [asdict(r) for r in sweep_results],
+    sweep_log = []
+    for r in sweep_results:
+        sweep_log.append(asdict(r))
+
+    log = {"baseline": asdict(baseline_result), "sweep": sweep_log,
            "best_config": best_hp, "final_model_validation": asdict(final_result),
            "final_model_dir": str(config.FT_FINAL_MODEL_DIR)}
     # salvato in finetuning/results/training_log.json

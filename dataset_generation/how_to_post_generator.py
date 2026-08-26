@@ -1,16 +1,18 @@
 from __future__ import annotations
 import ast
 import json
-from typing import Dict, Any, List, Tuple
 
-def _normalize_durations(durations: Any) -> List[str]:
+def _normalize_durations(durations):
     """Normalizza `durations` in una lista di stringhe, qualunque sia il
     formato in ingresso (lista vera, stringa JSON, stringa singola)"""
     if durations is None:
         return []
 
     if isinstance(durations, (list, tuple)):
-        return [str(item).strip() for item in durations]
+        normalized = []
+        for item in durations:
+            normalized.append(str(item).strip())
+        return normalized
 
     if isinstance(durations, str):
         text = durations.strip()
@@ -19,7 +21,10 @@ def _normalize_durations(durations: Any) -> List[str]:
                 try:
                     parsed = parser(text)
                     if isinstance(parsed, (list, tuple)):
-                        return [str(item).strip() for item in parsed]
+                        normalized = []
+                        for item in parsed:
+                            normalized.append(str(item).strip())
+                        return normalized
                 except (ValueError, SyntaxError):
                     continue
         return [text] if text else []
@@ -27,7 +32,7 @@ def _normalize_durations(durations: Any) -> List[str]:
     return [str(durations)]
 
 
-def _clamp_score(value: Any) -> int:
+def _clamp_score(value) -> int:
     """Forza il punteggio nel range 1-5"""
     try:
         value = int(value)
@@ -36,7 +41,7 @@ def _clamp_score(value: Any) -> int:
     return max(1, min(5, value))
 
 
-_DURATION_DAYS_MAP: List[Tuple[str, int]] = [
+_DURATION_DAYS_MAP = [
     ("weekend", 2),
     ("short trip", 3),
     ("one week", 7),
@@ -45,7 +50,7 @@ _DURATION_DAYS_MAP: List[Tuple[str, int]] = [
 ]
 
 
-def _days_for_duration(durations: List[str]) -> int:
+def _days_for_duration(durations) -> int:
     """Sceglie i giorni di itinerario dalla keyword di durata piu' lunga
     trovata in `durations`, default 3"""
     best_match = 0
@@ -57,7 +62,7 @@ def _days_for_duration(durations: List[str]) -> int:
     return best_match if best_match else 3
 
 
-def _duration_headline(durations: List[str]) -> str:
+def _duration_headline(durations) -> str:
     """Costruisce l'etichetta "X giorni" per l'headline"""
     days = _days_for_duration(durations)
     if days == 7:
@@ -182,9 +187,11 @@ def _day_title_label(category: str) -> str:
     return label[0].upper() + label[1:]
 
 
-def _ranked_categories(data: Dict[str, Any]) -> List[Tuple[str, int]]:
+def _ranked_categories(data):
     """Categorie ordinate dal punteggio piu' alto al piu' basso"""
-    scores = {cat: _clamp_score(data.get(cat, 3)) for cat in ACTIVITY_BLOCKS}
+    scores = {}
+    for cat in ACTIVITY_BLOCKS:
+        scores[cat] = _clamp_score(data.get(cat, 3))
     return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
 
 
@@ -193,7 +200,7 @@ def _budget_line(budget_level: str) -> str:
     return str(budget_level) if budget_level else ""
 
 
-def _duration_list_text(durations: List[str]) -> str:
+def _duration_list_text(durations) -> str:
     """Riporta ideal_durations cosi' come arriva, unendo i valori"""
     if not durations:
         return ""
@@ -204,22 +211,32 @@ def _duration_list_text(durations: List[str]) -> str:
     return ", ".join(durations[:-1]) + f" and {durations[-1]}"
 
 
-def _build_day_plan(ranked: List[Tuple[str, int]], num_days: int, city: str) -> List[str]:
+def _build_day_plan(ranked, num_days: int, city: str):
     """Distribuisce le categorie top-ranked sui giorni: quelle con
     punteggio piu' alto hanno un giorno dedicato, le altre si raggruppano"""
+
+    def _score_for(cat):
+        for c, s in ranked:
+            if c == cat:
+                return s
+        return None
+
     # tiene solo le categorie con punteggio almeno 2
-    relevant = [cat for cat, score in ranked if score >= 2]
+    relevant = []
+    for cat, score in ranked:
+        if score >= 2:
+            relevant.append(cat)
     if not relevant:
         relevant = [ranked[0][0]]  # fallback: mostra sempre almeno una categoria
 
-    days: List[str] = []
+    days = []
     cat_index = 0
 
     for day_num in range(1, num_days + 1):
         if cat_index >= len(relevant):
             # categorie finite: richiama la migliore con un tono piu' leggero
             top_cat = ranked[0][0]
-            score = next(s for c, s in ranked if c == top_cat)
+            score = _score_for(top_cat)
             line = _block_for(top_cat, score, city)
             days.append(
                 f"**Day {day_num}: Take it slow**\n"
@@ -237,9 +254,12 @@ def _build_day_plan(ranked: List[Tuple[str, int]], num_days: int, city: str) -> 
             cat_index = len(relevant)
             lines = []
             for cat in chunk:
-                score = next(s for c, s in ranked if c == cat)
+                score = _score_for(cat)
                 lines.append(f"- {_block_for(cat, score, city)}")
-            wrap_title = ", ".join(_day_title_label(c) for c in chunk)
+            wrap_title_parts = []
+            for c in chunk:
+                wrap_title_parts.append(_day_title_label(c))
+            wrap_title = ", ".join(wrap_title_parts)
             days.append(
                 f"**Day {day_num}: Wrap-up — {wrap_title}**\n"
                 + "\n".join(lines)
@@ -247,7 +267,7 @@ def _build_day_plan(ranked: List[Tuple[str, int]], num_days: int, city: str) -> 
         else:
             cat = relevant[cat_index]
             cat_index += 1
-            score = next(s for c, s in ranked if c == cat)
+            score = _score_for(cat)
             label = _day_title_label(cat)
             days.append(
                 f"**Day {day_num}: {label}**\n{_block_for(cat, score, city)}"
@@ -256,7 +276,7 @@ def _build_day_plan(ranked: List[Tuple[str, int]], num_days: int, city: str) -> 
     return days
 
 
-def generate_howto(data: Dict[str, Any]) -> str:
+def generate_howto(data) -> str:
     """Genera il post "How to spend X days in {city}", stile itinerario
     giorno per giorno guidato dai punteggi 1-5 delle categorie"""
     city = data.get("city", "this destination")

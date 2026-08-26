@@ -1,12 +1,10 @@
 """Wrapper su DuckDuckGo Search: nessuna API key richiesta."""
 from __future__ import annotations
 
-from typing import Any
-
 from ddgs import DDGS
 
 
-def search_web(query: str, max_results: int = 5) -> list[dict[str, Any]]:
+def search_web(query: str, max_results: int = 5):
     """Ritorna una lista di risultati {title, href, body} per la query data."""
     try:
         with DDGS() as ddgs:

@@ -73,3 +73,23 @@ class BlogAgentState(TypedDict):
     # --- storico dei post approvati nella sessione ---
     approved_posts: list[Draft]
 
+
+def initial_state(n_posts: int) -> BlogAgentState:
+    """Stato iniziale vuoto, con un valore per ogni campo di BlogAgentState
+    (main.py ed evaluate_agent.py partono entrambi da qui)."""
+    return {
+        "user_input": f"Plan and draft {n_posts} travel blog posts.",
+        "n_posts": n_posts,
+        "messages": [],
+        "reasoning_trace": [],
+        "tool_outputs": [],
+        "kg_summary": {},
+        "plan": [],
+        "current_post_idx": 0,
+        "gathered_facts": [],
+        "draft": None,
+        "human_decision": None,
+        "human_feedback": None,
+        "approved_posts": [],
+    }
+

@@ -88,8 +88,13 @@ def evaluate_model(label: str, model_dir_or_name: str, rows, prompt_builder) -> 
             }
         )
 
-    avg_grounding = sum(r["grounding_score"] for r in records) / len(records)
-    avg_rouge = sum(r["rouge_l"] for r in records) / len(records)
+    grounding_sum = 0.0
+    rouge_sum = 0.0
+    for r in records:
+        grounding_sum += r["grounding_score"]
+        rouge_sum += r["rouge_l"]
+    avg_grounding = grounding_sum / len(records)
+    avg_rouge = rouge_sum / len(records)
 
     print(f"{label}: perplexity={perplexity:.2f} grounding={avg_grounding:.3f} rougeL={avg_rouge:.3f}")
 
@@ -147,13 +152,19 @@ def main() -> None:
 
     failure_cases = sorted_by_grounding[:2] + sorted_by_rouge[:1]
 
+    comparison = []
+    for r in results:
+        r_without_records = {}
+        for k, v in r.items():
+            if k != "records":
+                r_without_records[k] = v
+        comparison.append(r_without_records)
+
     config.FT_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     with (config.FT_RESULTS_DIR / "final_evaluation.json").open("w", encoding="utf-8") as f:
         json.dump(
             {
-                "comparison": [
-                    {k: v for k, v in r.items() if k != "records"} for r in results
-                ],
+                "comparison": comparison,
                 "failure_cases": failure_cases,
                 "best_example": best_example,
             },

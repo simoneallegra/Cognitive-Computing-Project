@@ -12,6 +12,7 @@ import uuid
 from langgraph.types import Command
 
 import config
+import state
 from agent.graph import build_graph
 
 
@@ -49,24 +50,7 @@ def _ask_human_decision() -> dict:
 def run(n_posts: int) -> None:
     app = build_graph()
     thread_config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-
-    initial_state = {
-        "user_input": f"Plan and draft {n_posts} travel blog posts.",
-        "n_posts": n_posts,
-        "messages": [],
-        "reasoning_trace": [],
-        "tool_outputs": [],
-        "kg_summary": {},
-        "plan": [],
-        "current_post_idx": 0,
-        "gathered_facts": [],
-        "draft": None,
-        "human_decision": None,
-        "human_feedback": None,
-        "approved_posts": [],
-    }
-
-    result = app.invoke(initial_state, config=thread_config)
+    result = app.invoke(state.initial_state(n_posts), config=thread_config)
 
     while "__interrupt__" in result:
         interrupt_payload = result["__interrupt__"][0].value

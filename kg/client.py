@@ -15,7 +15,6 @@ Schema:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from neo4j import GraphDatabase
 
@@ -23,7 +22,7 @@ import config
 
 
 class KnowledgeGraph:
-    def __init__(self, uri: str | None = None, user: str | None = None, password: str | None = None):
+    def __init__(self, uri=None, user=None, password=None):
         self.driver = GraphDatabase.driver(
             uri or config.NEO4J_URI,
             auth=(user or config.NEO4J_USER, password or config.NEO4J_PASSWORD),
@@ -36,7 +35,7 @@ class KnowledgeGraph:
     def __enter__(self) -> "KnowledgeGraph":
         return self
 
-    def __exit__(self, *exc_info: Any) -> None:
+    def __exit__(self, *exc_info) -> None:
         self.close()
 
     # --------------------------------- setup ---------------------------------
@@ -100,7 +99,7 @@ class KnowledgeGraph:
         with self.driver.session() as session:
             session.run(query, post_id=post_id, url=url, domain=domain)
 
-    def add_claim(self, post_id: str, claim_id: str, text: str, source_url: str | None = None) -> None:
+    def add_claim(self, post_id: str, claim_id: str, text: str, source_url=None) -> None:
         query = """
         MATCH (p:Post {id: $post_id})
         MERGE (c:Claim {id: $claim_id})
@@ -121,7 +120,7 @@ class KnowledgeGraph:
                 )
 
     # ------------------------------ queries (planning / drafting) ---------------------------------
-    def get_recent_topics(self, limit: int = 10) -> list[str]:
+    def get_recent_topics(self, limit: int = 10):
         """Topic trattati piu' di recente, da evitare."""
         query = """
         MATCH (p:Post)-[:TALKS_ABOUT]->(t:Topic)
@@ -131,9 +130,25 @@ class KnowledgeGraph:
         """
         with self.driver.session() as session:
             result = session.run(query, limit=limit)
-            return [r["topic"] for r in result]
+            topics = []
+            for r in result:
+                topics.append(r["topic"])
+            return topics
 
-    def get_coverage_gaps(self, candidate_topics: list[str]) -> list[str]:
+    def get_all_topics(self):
+        """Tutti i topic gia' associati a un post pubblicato, senza limite di
+        recenza (usato per il controllo hard anti-duplicati in plan_posts,
+        a differenza di get_recent_topics che e' solo un suggerimento nel
+        prompt di planning e guarda solo agli ultimi `limit`)."""
+        query = "MATCH (t:Topic) RETURN DISTINCT t.name AS topic"
+        with self.driver.session() as session:
+            result = session.run(query)
+            topics = []
+            for r in result:
+                topics.append(r["topic"])
+            return topics
+
+    def get_coverage_gaps(self, candidate_topics):
         """Topic candidati mai trattati finora."""
         query = """
         UNWIND $candidates AS candidate
@@ -144,9 +159,12 @@ class KnowledgeGraph:
         """
         with self.driver.session() as session:
             result = session.run(query, candidates=candidate_topics)
-            return [r["topic"] for r in result]
+            topics = []
+            for r in result:
+                topics.append(r["topic"])
+            return topics
 
-    def get_related_context(self, topic: str, limit: int = 5) -> list[dict[str, Any]]:
+    def get_related_context(self, topic: str, limit: int = 5):
         """Post precedenti sullo stesso topic o su topic correlati."""
         query = """
         MATCH (t:Topic {name: $topic})
@@ -160,9 +178,12 @@ class KnowledgeGraph:
         """
         with self.driver.session() as session:
             result = session.run(query, topic=topic, limit=limit)
-            return [dict(r) for r in result]
+            posts = []
+            for r in result:
+                posts.append(dict(r))
+            return posts
 
-    def expand_query_topics(self, topic: str, limit: int = 5) -> list[str]:
+    def expand_query_topics(self, topic: str, limit: int = 5):
         """Topic correlati, per espandere la query nel pattern K-RAG."""
         query = """
         MATCH (t:Topic {name: $topic})-[:RELATED_TO]-(related:Topic)
@@ -171,9 +192,12 @@ class KnowledgeGraph:
         """
         with self.driver.session() as session:
             result = session.run(query, topic=topic, limit=limit)
-            return [r["topic"] for r in result]
+            topics = []
+            for r in result:
+                topics.append(r["topic"])
+            return topics
 
-    def get_claims_for_topic(self, topic: str, limit: int = 10) -> list[str]:
+    def get_claims_for_topic(self, topic: str, limit: int = 10):
         query = """
         MATCH (:Topic {name: $topic})<-[:TALKS_ABOUT]-(p:Post)-[:CONTAINS]->(c:Claim)
         RETURN DISTINCT c.text AS text
@@ -181,9 +205,12 @@ class KnowledgeGraph:
         """
         with self.driver.session() as session:
             result = session.run(query, topic=topic, limit=limit)
-            return [r["text"] for r in result]
+            texts = []
+            for r in result:
+                texts.append(r["text"])
+            return texts
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self):
         """Conteggio di post/topic/fonti/claim nel KG."""
         query = """
         MATCH (p:Post) WITH count(p) AS posts

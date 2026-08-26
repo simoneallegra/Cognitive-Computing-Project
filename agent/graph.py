@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
 
 from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
@@ -26,12 +25,58 @@ from state import BlogAgentState
 from tools import REACT_TOOLS, draft_with_finetuned_model, update_knowledge_graph
 from tools._shared import get_kg
 
-TOOLS_BY_NAME = {t.name: t for t in REACT_TOOLS}
+TOOLS_BY_NAME = {}
+for _t in REACT_TOOLS:
+    TOOLS_BY_NAME[_t.name] = _t
+
 MAX_REACT_STEPS = 10
 _CITATION_MARKER = "(source: "
 
 
-def _parse_plan_json(text: str) -> list[dict[str, str]]:
+def _normalize_topic(topic: str) -> str:
+    return topic.strip().casefold()
+
+
+def _dedupe_plan(plan, all_topics, coverage_gaps):
+    """Controllo hard anti-duplicati: il prompt di planning istruisce il LLM
+    a evitare i topic gia' pubblicati (via recent_topics/coverage_gaps), ma
+    e' solo un suggerimento -- questo filtro garantisce che nessun topic
+    identico (case-insensitive) a uno gia' nel KG, ne' ripetuto due volte
+    nello stesso piano, arrivi fino al drafting."""
+    existing = set()
+    for t in all_topics:
+        existing.add(_normalize_topic(t))
+
+    replacement_candidates = []
+    for t in coverage_gaps:
+        if _normalize_topic(t) not in existing:
+            replacement_candidates.append(t)
+    replacements = iter(replacement_candidates)
+
+    deduped = []
+    seen = set()
+    for item in plan:
+        key = _normalize_topic(item["topic"])
+        if key in existing or key in seen:
+            replacement = next(replacements, None)
+            if replacement is None:
+                print(f"[plan_posts] '{item['topic']}' e' gia' nel KG, scartato (nessuna categoria di ricambio disponibile).")
+                continue
+            print(f"[plan_posts] '{item['topic']}' e' gia' nel KG, sostituito con '{replacement}'.")
+            item = {
+                **item,
+                "topic": replacement,
+                "justification": f"{item['justification']} (topic originale duplicato di un post gia' pubblicato, sostituito)",
+            }
+            key = _normalize_topic(item["topic"])
+            if key in seen:
+                continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _parse_plan_json(text: str):
     cleaned = text.strip()
     if cleaned.startswith("```json"):
         cleaned = cleaned[len("```json"):]
@@ -44,11 +89,11 @@ def _parse_plan_json(text: str) -> list[dict[str, str]]:
     return json.loads(cleaned)
 
 
-def _extract_citations(tool_outputs: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _extract_citations(tool_outputs):
     """Estrae gli URL dalle righe di rag_retrieval_tool, formato
     "[i] (source: URL) testo"."""
-    citations: list[dict[str, str]] = []
-    seen: set[str] = set()
+    citations = []
+    seen = set()
     for record in tool_outputs:
         if record["tool"] != "rag_retrieval_tool":
             continue
@@ -67,13 +112,42 @@ def _extract_citations(tool_outputs: list[dict[str, Any]]) -> list[dict[str, str
     return citations
 
 
+def _split_fact_source(fact_text: str):
+    """Estrae il marcatore inline "(source: URL)" da un singolo fatto (il
+    ReAct prompt richiede esplicitamente di includerlo in ogni fatto, si
+    veda build_react_system_prompt). Ritorna (testo_pulito, url) -- url
+    vuota se il fatto non porta un marcatore (es. i fatti di fallback)."""
+    start = fact_text.find(_CITATION_MARKER)
+    if start == -1:
+        return fact_text, ""
+    end = fact_text.find(")", start)
+    if end == -1:
+        return fact_text, ""
+    url = fact_text[start + len(_CITATION_MARKER):end].strip()
+    clean_text = (fact_text[:start] + fact_text[end + 1:]).strip()
+    return (clean_text or fact_text), url
+
+
+def _facts_with_sources(raw_facts):
+    """Converte i fatti grezzi (stringhe con eventuale "(source: URL)"
+    inline) in RetrievedFact, con la fonte di ciascun fatto estratta dal
+    fatto stesso -- non piu' accoppiata per posizione a una lista di
+    citazioni separata (si veda update_knowledge_graph)."""
+    facts = []
+    for raw in raw_facts:
+        text, source_url = _split_fact_source(raw)
+        facts.append({"text": text, "source_url": source_url, "source_title": "", "quality_score": 0.0})
+    return facts
+
+
 # nodi del grafo
-def load_kg_context(state: BlogAgentState) -> dict[str, Any]:
+def load_kg_context(state: BlogAgentState):
     """Interroga il KG per sapere cosa e' gia' stato pubblicato."""
     kg = get_kg()
     kg_summary = {
         "recent_topics": kg.get_recent_topics(),
         "coverage_gaps": kg.get_coverage_gaps(config.TOPIC_CATEGORIES),
+        "all_topics": kg.get_all_topics(),
         **kg.summary(),
     }
     print(
@@ -84,35 +158,45 @@ def load_kg_context(state: BlogAgentState) -> dict[str, Any]:
     return {"kg_summary": kg_summary}
 
 
-def plan_posts(state: BlogAgentState) -> dict[str, Any]:
+def plan_posts(state: BlogAgentState):
     """Chiede al LLM il piano dei post, basandosi sul riassunto del KG."""
     n_posts = state.get("n_posts", 3)
     llm = get_chat_model()
     messages = build_planning_messages(state["kg_summary"], n_posts)
     response = llm.invoke(messages)
+    print("[plan_posts] LLM ha generato un piano, parsing JSON...")
 
     try:
         raw_plan = _parse_plan_json(response.content)
     except (json.JSONDecodeError, TypeError, ValueError):
         fallback_topics = state["kg_summary"].get("coverage_gaps") or config.TOPIC_CATEGORIES
-        raw_plan = [
-            {
-                "topic": topic,
-                "post_type": "review",
-                "justification": "Fallback: planner output was not valid JSON; using a coverage gap.",
-            }
-            for topic in fallback_topics[:n_posts]
-        ]
+        raw_plan = []
+        for topic in fallback_topics[:n_posts]:
+            raw_plan.append(
+                {
+                    "topic": topic,
+                    "post_type": "review",
+                    "justification": "Fallback: planner output was not valid JSON; using a coverage gap.",
+                }
+            )
 
-    plan = [
-        {
-            "topic": item.get("topic", f"Untitled topic {i}"),
-            "post_type": item.get("post_type") if item.get("post_type") in config.POST_TYPES else "review",
-            "justification": item.get("justification", ""),
-            "status": "planned",
-        }
-        for i, item in enumerate(raw_plan[:n_posts])
-    ]
+    plan = []
+    for i, item in enumerate(raw_plan[:n_posts]):
+        post_type = item.get("post_type") if item.get("post_type") in config.POST_TYPES else "review"
+        plan.append(
+            {
+                "topic": item.get("topic", f"Untitled topic {i}"),
+                "post_type": post_type,
+                "justification": item.get("justification", ""),
+                "status": "planned",
+            }
+        )
+
+    plan = _dedupe_plan(
+        plan,
+        all_topics=state["kg_summary"].get("all_topics", []),
+        coverage_gaps=state["kg_summary"].get("coverage_gaps") or list(config.TOPIC_CATEGORIES),
+    )
 
     print(f"[plan_posts] piano di {len(plan)} post:")
     for p in plan:
@@ -120,7 +204,7 @@ def plan_posts(state: BlogAgentState) -> dict[str, Any]:
     return {"plan": plan, "current_post_idx": 0}
 
 
-def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
+def gather_and_draft(state: BlogAgentState):
     """Ciclo ReAct per il post corrente: raccoglie i fatti coi tool, poi
     genera il draft col modello fine-tuned."""
     plan = state["plan"]
@@ -128,15 +212,15 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
     post = plan[idx]
 
     llm = get_chat_model().bind_tools(REACT_TOOLS)
-    messages: list[Any] = [SystemMessage(content=build_react_system_prompt(
+    messages = [SystemMessage(content=build_react_system_prompt(
         post["topic"], post["post_type"], post["justification"]
     ))]
 
-    reasoning_trace: list[dict[str, Any]] = []
-    tool_outputs: list[dict[str, Any]] = []
-    gathered_facts: list[str] = []
-    draft_body: str | None = None
-    seen_calls: set[tuple[str, str]] = set()  # (tool, args) gia' invocati in questa sessione
+    reasoning_trace = []
+    tool_outputs = []
+    gathered_facts = []
+    draft_body = None
+    seen_calls = set()  # (tool, args) gia' invocati in questa sessione
 
     print(f"[gather_and_draft] '{post['topic']}': inizio ciclo ReAct...")
     for _ in range(MAX_REACT_STEPS):
@@ -163,9 +247,6 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
                 observation = f"Tool error: unknown tool '{tool_name}'."
                 tool_failed = True
             elif call_signature in seen_calls:
-                # il modello a volte si blocca ripetendo lo stesso identico
-                # tool call invece di procedere al drafting: invece di
-                # rieseguirlo (rete/tempo sprecati) lo si spinge avanti
                 observation = (
                     "You already called this exact tool with these exact arguments earlier "
                     "in this session -- repeating it gives no new information. Call "
@@ -176,8 +257,7 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
                 seen_calls.add(call_signature)
                 try:
                     observation = tool.invoke(tool_args)
-                except Exception as exc:  # input non valido dal LLM: l'errore diventa una Observation,
-                    # cosi' il ciclo ReAct puo' autocorreggersi al prossimo turno invece di interrompersi
+                except Exception as exc:
                     observation = (
                         f"Tool error calling {tool_name} with args {tool_args}: {exc}. "
                         f"Check the expected argument names and try again."
@@ -212,13 +292,17 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
         if draft_body is not None:
             break
 
+    facts_used_for_draft = gathered_facts
     if draft_body is None:
         # safety net: garantisce che il drafting passi SEMPRE dal tool fine-tuned
+        # (topic/post_type sono metadati del post, non fatti estratti da una fonte:
+        # servono solo a far partire il drafting, non devono diventare Claim nel KG,
+        # quindi non toccano `gathered_facts`)
         facts_fallback = gathered_facts or [f"Topic: {post['topic']}", f"Post type: {post['post_type']}"]
         draft_body = draft_with_finetuned_model.invoke(
             {"topic": post["topic"], "post_type": post["post_type"], "facts": facts_fallback}
         )
-        gathered_facts = facts_fallback
+        facts_used_for_draft = facts_fallback
         reasoning_trace.append(
             {
                 "step": len(reasoning_trace) + 1,
@@ -237,11 +321,13 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
         "title": f"{post['topic']} — {post['post_type'].replace('_', ' ').title()}",
         "body": draft_body,
         "citations": citations,
-        "facts_used": gathered_facts,
+        "facts_used": facts_used_for_draft,
         "reasoning_trace": reasoning_trace,
     }
 
-    tools_used = [step["tool"] for step in reasoning_trace]
+    tools_used = []
+    for step in reasoning_trace:
+        tools_used.append(step["tool"])
     print(
         f"[gather_and_draft] '{post['topic']}': {len(reasoning_trace)} step "
         f"({', '.join(tools_used)}), {len(citations)} citazioni — draft pronto per la revisione"
@@ -251,14 +337,12 @@ def gather_and_draft(state: BlogAgentState) -> dict[str, Any]:
         "messages": messages,
         "reasoning_trace": state.get("reasoning_trace", []) + reasoning_trace,
         "tool_outputs": state.get("tool_outputs", []) + tool_outputs,
-        "gathered_facts": [
-            {"text": f, "source_url": "", "source_title": "", "quality_score": 0.0} for f in gathered_facts
-        ],
+        "gathered_facts": _facts_with_sources(facts_used_for_draft),
         "draft": draft,
     }
 
 
-def human_review(state: BlogAgentState) -> dict[str, Any]:
+def human_review(state: BlogAgentState):
     """Sospende il grafo e aspetta la decisione dell'utente sul draft."""
     decision = interrupt(
         {
@@ -273,7 +357,7 @@ def human_review(state: BlogAgentState) -> dict[str, Any]:
     }
 
 
-def update_kg(state: BlogAgentState) -> dict[str, Any]:
+def update_kg(state: BlogAgentState):
     """Scrive il post nel KG, solo dopo l'approvazione umana."""
     draft = dict(state["draft"])
     if state.get("human_decision") == "modify" and state.get("human_feedback"):
@@ -284,9 +368,15 @@ def update_kg(state: BlogAgentState) -> dict[str, Any]:
     plan = state["plan"]
     idx = state["current_post_idx"]
 
-    related_topics = [p["topic"] for i, p in enumerate(plan) if i != idx and p["status"] == "approved"]
-    source_urls = [c["url"] for c in draft.get("citations", []) if c.get("url")]
-    claims = [f["text"] for f in state.get("gathered_facts", [])]
+    related_topics = []
+    for i, p in enumerate(plan):
+        if i != idx and p["status"] == "approved":
+            related_topics.append(p["topic"])
+
+    source_urls = []
+    for c in draft.get("citations", []):
+        if c.get("url"):
+            source_urls.append(c["url"])
 
     update_knowledge_graph(
         kg,
@@ -297,7 +387,7 @@ def update_kg(state: BlogAgentState) -> dict[str, Any]:
         summary=draft["body"][:300],
         related_topics=related_topics,
         sources=source_urls,
-        claims=claims,
+        facts=state.get("gathered_facts", []),
     )
 
     new_plan = list(plan)

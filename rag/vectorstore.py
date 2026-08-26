@@ -17,7 +17,7 @@ def get_embeddings() -> HuggingFaceEmbeddings:
     return HuggingFaceEmbeddings(model_name=config.EMBEDDING_MODEL_NAME)
 
 
-def build_index(documents: list[Document]) -> FAISS | None:
+def build_index(documents):
     if not documents:
         return None
     return FAISS.from_documents(documents, get_embeddings())

@@ -11,7 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 import config
 from kg.client import KnowledgeGraph
 
-_kg_instance: KnowledgeGraph | None = None
+_kg_instance = None
 
 
 def get_kg() -> KnowledgeGraph:

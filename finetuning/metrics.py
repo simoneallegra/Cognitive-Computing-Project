@@ -19,8 +19,8 @@ def perplexity_from_loss(eval_loss: float) -> float:
     return math.exp(eval_loss)
 
 
-def _significant_tokens(line: str) -> set[str]:
-    tokens: list[str] = []
+def _significant_tokens(line: str):
+    tokens = []
     current = ""
     for ch in line.lower():
         if ("a" <= ch <= "z") or ("0" <= ch <= "9"):
@@ -30,10 +30,14 @@ def _significant_tokens(line: str) -> set[str]:
             current = ""
     if current:
         tokens.append(current)
-    return {t for t in tokens if len(t) >= 3 and t not in _STOPWORDS}
+    significant = set()
+    for t in tokens:
+        if len(t) >= 3 and t not in _STOPWORDS:
+            significant.add(t)
+    return significant
 
 
-def grounding_score(generated_text: str, facts: list[str]) -> float:
+def grounding_score(generated_text: str, facts) -> float:
     """Media, sui fatti, della frazione di token significativi che
     compaiono nel testo generato."""
     if not facts:
@@ -44,7 +48,10 @@ def grounding_score(generated_text: str, facts: list[str]) -> float:
         tokens = _significant_tokens(fact)
         if not tokens:
             continue
-        hits = sum(1 for t in tokens if t in generated_lower)
+        hits = 0
+        for t in tokens:
+             if t in generated_lower:
+                hits += 1
         covered += hits / len(tokens)
     return covered / len(facts)
 

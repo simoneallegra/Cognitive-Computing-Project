@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 
-from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 
 import config
@@ -98,7 +97,7 @@ PLANNING_PROMPT = ChatPromptTemplate.from_messages(
 REACT_PROMPT = ChatPromptTemplate.from_messages([("system", _REACT_SYSTEM_TEXT)])
 
 
-def build_planning_messages(kg_summary: dict, n_posts: int) -> list[BaseMessage]:
+def build_planning_messages(kg_summary: dict, n_posts: int):
     return PLANNING_PROMPT.format_messages(
         domain=config.BLOG_DOMAIN,
         n_posts=n_posts,
@@ -120,11 +119,13 @@ def build_react_system_prompt(topic: str, post_type: str, justification: str) ->
 
 
 if __name__ == "__main__":
-    # Debug: `python agent/prompts.py` stampa i due prompt di sistema con
-    # dati finti, per ispezionarli senza dover lanciare l'intero agente
-    dummy_kg_summary = {"recent_topics": ["Bangkok street food"], "coverage_gaps": ["culture", "beaches"]}
-    messages = build_planning_messages(dummy_kg_summary, n_posts=2)
-    print("--- planning system prompt ---")
-    print(messages[0].content)
-    print("\n--- react system prompt ---")
-    print(build_react_system_prompt("A weekend in Verona", "review", "covers a gap"))
+   # Debug: `python agent/prompts.py` stampa i due prompt di sistema con
+   # dati finti, per ispezionarli senza dover lanciare l'intero agente
+
+  
+   dummy_kg_summary = {"recent_topics": ["Bangkok street food"], "coverage_gaps": ["culture", "beaches"]}
+   messages = build_planning_messages(dummy_kg_summary, n_posts=2)
+   print("--- planning system prompt ---")
+   print(messages[0].content)
+   print("\n--- react system prompt ---")
+   print(build_react_system_prompt("A weekend in Verona", "review", "covers a gap"))

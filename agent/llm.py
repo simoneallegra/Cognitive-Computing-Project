@@ -12,14 +12,12 @@ import json
 import re
 import uuid
 from functools import lru_cache
-from typing import Any, Sequence
+from typing import Any
 
 import torch
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_core.runnables import Runnable
-from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ConfigDict
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -31,7 +29,7 @@ _TOOL_CALL_CLOSE = "</tool_call>"
 _MISSING_COMMA_RE = re.compile(r'"\s+"')
 
 
-def _parse_tool_call_json(payload_text: str) -> dict[str, Any] | None:
+def _parse_tool_call_json(payload_text: str):
     """Prova a fare il parse del JSON del tool_call. Il modello a volte
     dimentica la virgola tra due stringhe consecutive di un array (es. la
     lista `facts`): come secondo tentativo la si inserisce a mano invece
@@ -44,7 +42,7 @@ def _parse_tool_call_json(payload_text: str) -> dict[str, Any] | None:
     return None
 
 
-def _extract_tool_calls(text: str) -> tuple[list[dict[str, Any]], str]:
+def _extract_tool_calls(text: str):
     """Estrae i blocchi <tool_call>{...}</tool_call> dal testo generato.
 
     Il modello a volte si ferma subito dopo il JSON, senza emettere
@@ -54,7 +52,7 @@ def _extract_tool_calls(text: str) -> tuple[list[dict[str, Any]], str]:
     es. auto-correggendosi a meta' risposta) o a fine testo, invece di
     scartare la chiamata in silenzio e far sembrare che il modello non
     volesse più agire."""
-    tool_calls: list[dict[str, Any]] = []
+    tool_calls = []
     remaining = text
     cursor = 0
     while True:
@@ -85,7 +83,7 @@ def _extract_tool_calls(text: str) -> tuple[list[dict[str, Any]], str]:
     return tool_calls, remaining.strip()
 
 
-def _message_to_dict(message: BaseMessage) -> dict[str, Any]:
+def _message_to_dict(message: BaseMessage):
     if isinstance(message, ToolMessage):
         return {"role": "tool", "content": str(message.content)}
     if isinstance(message, SystemMessage):
@@ -93,9 +91,12 @@ def _message_to_dict(message: BaseMessage) -> dict[str, Any]:
     if isinstance(message, HumanMessage):
         return {"role": "user", "content": message.content}
     if isinstance(message, AIMessage):
-        entry: dict[str, Any] = {"role": "assistant", "content": message.content or ""}
+        entry = {"role": "assistant", "content": message.content or ""}
         if message.tool_calls:
-            entry["tool_calls"] = [{"name": tc["name"], "arguments": tc["args"]} for tc in message.tool_calls]
+            tool_calls = []
+            for tc in message.tool_calls:
+                tool_calls.append({"name": tc["name"], "arguments": tc["args"]})
+            entry["tool_calls"] = tool_calls
         return entry
     msg = f"Unsupported message type: {type(message)}"
     raise TypeError(msg)
@@ -116,23 +117,17 @@ class LocalQwenToolCallingChat(BaseChatModel):
     def _llm_type(self) -> str:
         return "local-qwen-tool-calling"
 
-    def bind_tools(
-        self,
-        tools: Sequence[dict[str, Any] | type | Any | BaseTool],
-        **kwargs: Any,
-    ) -> Runnable[Any, AIMessage]:
-        formatted_tools = [convert_to_openai_tool(t) for t in tools]
+    def bind_tools(self, tools, **kwargs):
+        formatted_tools = []
+        for t in tools:
+            formatted_tools.append(convert_to_openai_tool(t))
         return super().bind(tools=formatted_tools, **kwargs)
 
-    def _generate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: Any = None,
-        **kwargs: Any,
-    ) -> ChatResult:
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
         tools = kwargs.get("tools")
-        message_dicts = [_message_to_dict(m) for m in messages]
+        message_dicts = []
+        for m in messages:
+            message_dicts.append(_message_to_dict(m))
         prompt = self.hf_tokenizer.apply_chat_template(
             message_dicts, tools=tools, tokenize=False, add_generation_prompt=True
         )

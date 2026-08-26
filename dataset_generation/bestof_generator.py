@@ -8,7 +8,6 @@ originale della lista (sort stabile)
 """
 
 from __future__ import annotations
-from typing import Dict, Any, List
 
 VALID_CATEGORIES = (
     "culture", "adventure", "nature", "beaches",
@@ -96,7 +95,7 @@ RANK_BLURBS = {
 }
 
 
-def _clamp_score(value: Any) -> int:
+def _clamp_score(value) -> int:
     """Forza il punteggio nel range 1-5"""
     try:
         value = int(value)
@@ -105,14 +104,21 @@ def _clamp_score(value: Any) -> int:
     return max(1, min(5, value))
 
 
-def _other_categories_average(entry: Dict[str, Any], category: str) -> float:
+def _other_categories_average(entry, category: str) -> float:
     """Media delle altre 8 categorie, per lo spareggio"""
-    others = [c for c in VALID_CATEGORIES if c != category]
-    scores = [_clamp_score(entry.get(c, 3)) for c in others]
+    others = []
+    for c in VALID_CATEGORIES:
+        if c != category:
+            others.append(c)
+
+    scores = []
+    for c in others:
+        scores.append(_clamp_score(entry.get(c, 3)))
+
     return sum(scores) / len(scores) if scores else 0.0
 
 
-def _location_text(entry: Dict[str, Any]) -> str:
+def _location_text(entry) -> str:
     """Costruisce la stringa citta'/paese, con regione se presente"""
     city = entry.get("city", "Unknown")
     region = entry.get("region", "")
@@ -122,7 +128,7 @@ def _location_text(entry: Dict[str, Any]) -> str:
     return f"{city}, {country}"
 
 
-def rank_destinations(destinations: List[Dict[str, Any]], category: str, top_n: int = 5) -> List[Dict[str, Any]]:
+def rank_destinations(destinations, category: str, top_n: int = 5):
     """Ordina le destinazioni per punteggio nella categoria, spareggio con
     la media delle altre 8 categorie, poi ordine originale della lista"""
     if category not in VALID_CATEGORIES:
@@ -141,7 +147,7 @@ def rank_destinations(destinations: List[Dict[str, Any]], category: str, top_n: 
     return ranked[:top_n]
 
 
-def generate_ranking_post(destinations: List[Dict[str, Any]], category: str, top_n: int = 5) -> str:
+def generate_ranking_post(destinations, category: str, top_n: int = 5) -> str:
     """Genera il post "Top N citta' per {categoria}" """
     category = category.lower().strip()
     top_destinations = rank_destinations(destinations, category, top_n)

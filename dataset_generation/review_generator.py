@@ -1,7 +1,5 @@
 from __future__ import annotations
 import json
-from typing import Dict, Any, List
-
 
 
 CULTURE_SENTENCES = {
@@ -137,11 +135,17 @@ def _budget_sentence(budget_level: str) -> str:
     return str(budget_level) if budget_level else ""
 
 
-def _top_categories_summary(data: Dict[str, Any], city: str) -> str:
+def _top_categories_summary(data, city: str) -> str:
     """Trova le 2 categorie con punteggio piu' alto e costruisce la chiusura"""
-    scores = {cat: data.get(cat, 3) for cat in SENTENCE_BANKS}
+    scores = {}
+    for cat in SENTENCE_BANKS:
+        scores[cat] = data.get(cat, 3)
+
     top_two = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:2]
-    labels = [CATEGORY_LABELS[cat] for cat, _ in top_two]
+
+    labels = []
+    for cat, _ in top_two:
+        labels.append(CATEGORY_LABELS[cat])
 
     if len(labels) == 2:
         categories_text = f"{labels[0]} and {labels[1]}"
@@ -154,7 +158,7 @@ def _top_categories_summary(data: Dict[str, Any], city: str) -> str:
     )
 
 
-def generate_review(data: Dict[str, Any]) -> str:
+def generate_review(data) -> str:
     """Genera il testo completo della recensione dal dizionario `data`"""
     city = data.get("city", "this destination")
     region = data.get("region", "")

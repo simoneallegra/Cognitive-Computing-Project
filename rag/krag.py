@@ -3,8 +3,6 @@ per search -> fetch -> chunk -> embedding, e i passaggi tornano con la
 fonte allegata per poterli citare."""
 from __future__ import annotations
 
-from typing import Any
-
 from langchain_core.documents import Document
 
 from rag.chunking import chunk_text
@@ -13,7 +11,7 @@ from rag.search import search_web
 from rag.vectorstore import build_index, get_retriever
 
 
-def expand_query(query: str, topic: str | None, kg: Any | None) -> str:
+def expand_query(query: str, topic, kg) -> str:
     """Aggiunge alla query i topic correlati trovati nel KG"""
     if not topic or kg is None:
         return query
@@ -23,10 +21,10 @@ def expand_query(query: str, topic: str | None, kg: Any | None) -> str:
     return f"{query} ({', '.join(related)})"
 
 
-def gather_documents(query: str, max_sources: int = 4) -> list[Document]:
+def gather_documents(query: str, max_sources: int = 4):
     """Search -> fetch -> chunk. Ogni Document porta la fonte nei metadata"""
     results = search_web(query, max_results=max_sources)
-    documents: list[Document] = []
+    documents = []
     for result in results:
         url = result.get("href", "")
         title = result.get("title", "")
@@ -46,13 +44,7 @@ def gather_documents(query: str, max_sources: int = 4) -> list[Document]:
     return documents
 
 
-def retrieve_with_citations(
-    query: str,
-    topic: str | None = None,
-    kg: Any | None = None,
-    max_sources: int = 4,
-    k: int = 5,
-) -> list[dict[str, str]]:
+def retrieve_with_citations(query: str, topic=None, kg=None, max_sources: int = 4, k: int = 5):
     """Pipeline K-RAG completa: espande la query, recupera e ritorna i
     passaggi con la relativa fonte"""
     expanded = expand_query(query, topic, kg)
@@ -62,14 +54,16 @@ def retrieve_with_citations(
         return []
 
     retrieved = get_retriever(index, k=k).invoke(query)
-    return [
-        {
-            "text": doc.page_content,
-            "source_url": doc.metadata.get("source_url", ""),
-            "source_title": doc.metadata.get("source_title", ""),
-        }
-        for doc in retrieved
-    ]
+    passages = []
+    for doc in retrieved:
+        passages.append(
+            {
+                "text": doc.page_content,
+                "source_url": doc.metadata.get("source_url", ""),
+                "source_title": doc.metadata.get("source_title", ""),
+            }
+        )
+    return passages
 
 
 if __name__ == "__main__":

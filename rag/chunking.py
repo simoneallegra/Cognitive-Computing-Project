@@ -11,7 +11,7 @@ _splitter = RecursiveCharacterTextSplitter(
 )
 
 
-def chunk_text(text: str) -> list[str]:
+def chunk_text(text: str):
     if not text:
         return []
     return _splitter.split_text(text)

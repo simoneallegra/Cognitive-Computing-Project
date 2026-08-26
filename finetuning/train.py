@@ -69,11 +69,16 @@ def load_tokenized_dataset(tokenizer):
     dataset_dict = load_from_disk(str(config.FT_DATA_DIR / "context_grounded_dataset"))
     text_columns = dataset_dict["train"].column_names
 
+    columns_to_remove = []
+    for c in text_columns:
+        if c not in ("prompt", "facts"):
+            columns_to_remove.append(c)
+
     tokenized = dataset_dict.map(
         _tokenize,
         fn_kwargs={"tokenizer": tokenizer},
         batched=False,
-        remove_columns=[c for c in text_columns if c not in ("prompt", "facts")],
+        remove_columns=columns_to_remove,
     )
     return dataset_dict, tokenized
 
@@ -225,9 +230,13 @@ def main() -> None:
         best_hp, tokenized, raw_dataset["validation"], save_dir=config.FT_FINAL_MODEL_DIR
     )
 
+    sweep_log = []
+    for r in sweep_results:
+        sweep_log.append(asdict(r))
+
     log = {
         "baseline": asdict(baseline_result),
-        "sweep": [asdict(r) for r in sweep_results],
+        "sweep": sweep_log,
         "best_config": best_hp,
         "final_model_validation": asdict(final_result),
         "final_model_dir": str(config.FT_FINAL_MODEL_DIR),

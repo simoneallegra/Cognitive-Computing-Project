@@ -40,20 +40,37 @@ def update_knowledge_graph(
     post_type: str,
     topic: str,
     summary: str = "",
-    related_topics: list[str] | None = None,
-    sources: list[str] | None = None,
-    claims: list[str] | None = None,
+    related_topics=None,
+    sources=None,
+    facts=None,
 ) -> None:
-    """Scrive il post nel KG. Chiamata solo da `update_kg`, mai dal LLM."""
+    """Scrive il post nel KG. Chiamata solo da `update_kg`, mai dal LLM.
+
+    `facts` e' la lista di RetrievedFact raccolta in gather_and_draft: ogni
+    fatto porta gia' la propria `source_url` (estratta dal marcatore
+    "(source: URL)" inline nel testo del fatto, si veda
+    agent/graph.py:_split_fact_source) -- niente piu' accoppiamento per
+    indice con una lista di source separata, che poteva lasciare claim
+    senza fonte quando le due liste avevano lunghezze diverse.
+    """
     kg.add_post(post_id, title, post_type, summary)
     kg.link_post_topic(post_id, topic)
     for related in related_topics or []:
         kg.link_topics_related(topic, related)
     for url in sources or []:
         kg.link_post_source(post_id, url)
-    for i, claim_text in enumerate(claims or []):
-        source_url = sources[i] if sources and i < len(sources) else None
+
+    for i, fact in enumerate(facts or []):
+        claim_text = fact.get("text", "")
+        if not claim_text:
+            continue
+        source_url = fact.get("source_url") or None
         kg.add_claim(post_id, f"{post_id}_claim_{i}", claim_text, source_url=source_url)
+        if source_url:
+            # assicura il collegamento anche se la fonte non era gia' tra
+            # `sources` (es. un fatto raccolto da search_web_tool, che
+            # _extract_citations non intercetta)
+            kg.link_post_source(post_id, source_url)
 
 
 if __name__ == "__main__":

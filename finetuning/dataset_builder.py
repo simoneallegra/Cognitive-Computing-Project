@@ -10,7 +10,6 @@ import json
 import random
 import sys
 from pathlib import Path
-from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -35,14 +34,17 @@ TASK_INSTRUCTION = {
 }
 
 
-def _load_destinations() -> list[dict[str, Any]]:
+def _load_destinations():
     download_path = kagglehub.dataset_download(KAGGLE_DATASET)
     csv_file = sorted(Path(download_path).rglob("*.csv"))[0]
     df = pd.read_csv(csv_file)
-    return [df.iloc[i].to_dict() for i in range(len(df))]
+    destinations = []
+    for i in range(len(df)):
+        destinations.append(df.iloc[i].to_dict())
+    return destinations
 
 
-def _fact_lines_for_destination(data: dict[str, Any]) -> list[str]:
+def _fact_lines_for_destination(data):
     lines = [f"City: {data['city']}, {data.get('region', '')}, {data['country']}".replace(", ,", ",")]
     if data.get("short_description"):
         lines.append(f"Description: {data['short_description']}")
@@ -53,14 +55,14 @@ def _fact_lines_for_destination(data: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _fact_lines_for_ranking(top_destinations: list[dict[str, Any]], category: str) -> list[str]:
+def _fact_lines_for_ranking(top_destinations, category: str):
     lines = [f"Category: {category}"]
     for i, dest in enumerate(top_destinations, start=1):
         lines.append(f"{i}. {dest['city']}, {dest['country']} - {category}: {dest.get(category)}/5")
     return lines
 
 
-def _build_example(post_type: str, fact_lines: list[str], topic: str, completion: str) -> dict[str, Any]:
+def _build_example(post_type: str, fact_lines, topic: str, completion: str):
     facts_block = "\n".join(fact_lines)
     prompt = f"Facts:\n{facts_block}\n\nTopic: {topic}\nTask: {TASK_INSTRUCTION[post_type]}"
     return {
@@ -72,8 +74,8 @@ def _build_example(post_type: str, fact_lines: list[str], topic: str, completion
     }
 
 
-def build_examples(destinations: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    examples: list[dict[str, Any]] = []
+def build_examples(destinations):
+    examples = []
 
     for dest in destinations:
         review_facts = _fact_lines_for_destination(dest)
@@ -100,7 +102,7 @@ def build_examples(destinations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return examples
 
 
-def split_dataset(examples: list[dict[str, Any]]) -> DatasetDict:
+def split_dataset(examples) -> DatasetDict:
     """Divide il dataset 80/10/10 in train/validation/test."""
     dataset = Dataset.from_list(examples)
     train_test = dataset.train_test_split(test_size=0.2, seed=SEED)
