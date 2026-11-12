@@ -27,6 +27,11 @@ import config  # noqa: E402
 
 SEED = 42
 KAGGLE_DATASET = "furkanima/worldwide-travel-cities-ratings-and-climate"
+# quanti "Top N" diversi generare per ogni categoria: una sola variante (top_n=5)
+# lascia solo 9 esempi ranking su ~1129 (uno per categoria) -- troppo pochi perche'
+# il modello impari lo stile, e troppo pochi perche' uno split stratificato 80/10/10
+# possa garantire almeno un esempio in validation/test (si veda split_dataset)
+RANKING_TOP_N_VARIANTS = [3, 5, 8]
 TASK_INSTRUCTION = {
     "review": "Write a travel review blog post using ONLY the facts above.",
     "how_to": "Write a 'how to spend your time' travel guide post using ONLY the facts above.",
@@ -89,41 +94,60 @@ def build_examples(destinations):
         )
 
     for category in config.TOPIC_CATEGORIES:
-        ranked_post = generate_ranking_post(destinations, category=category, top_n=5)
-        top_destinations = sorted(
-            destinations, key=lambda d: d.get(category, 0), reverse=True
-        )[:5]
-        ranking_facts = _fact_lines_for_ranking(top_destinations, category)
-        examples.append(
-            _build_example("ranking", ranking_facts, f"Top cities for {category}", ranked_post)
-        )
+        for top_n in RANKING_TOP_N_VARIANTS:
+            ranked_post = generate_ranking_post(destinations, category=category, top_n=top_n)
+            top_destinations = sorted(
+                destinations, key=lambda d: d.get(category, 0), reverse=True
+            )[:top_n]
+            ranking_facts = _fact_lines_for_ranking(top_destinations, category)
+            examples.append(
+                _build_example("ranking", ranking_facts, f"Top {top_n} cities for {category}", ranked_post)
+            )
 
     random.Random(SEED).shuffle(examples)
     return examples
 
 
 def split_dataset(examples) -> DatasetDict:
-    """Divide il dataset 80/10/10 in train/validation/test."""
-    dataset = Dataset.from_list(examples)
-    train_test = dataset.train_test_split(test_size=0.2, seed=SEED)
-    val_test = train_test["test"].train_test_split(test_size=0.5, seed=SEED)
-    return DatasetDict(
+    """Divide il dataset 80/10/10 in train/validation/test con train_test_split,
+    stratificando per post_type: senza stratificazione, un singolo split casuale
+    puo' lasciare validation o test senza nemmeno un esempio "ranking" (la classe
+    piu' rara) per puro caso -- ed e' esattamente quello che succedeva prima.
+
+    stratify_by_column richiede una colonna ClassLabel, non una stringa semplice:
+    class_encode_column la deriva dai valori unici presenti. Dopo lo split la si
+    riporta alla stringa originale con int2str, perche' il resto del progetto
+    (train.py, evaluate.py, agent/) legge row["post_type"] aspettandosi
+    "review"/"how_to"/"ranking", non il codice intero ClassLabel."""
+    dataset = Dataset.from_list(examples).class_encode_column("post_type")
+    labels = dataset.features["post_type"]
+
+    train_test = dataset.train_test_split(test_size=0.2, seed=SEED, stratify_by_column="post_type")
+    val_test = train_test["test"].train_test_split(test_size=0.5, seed=SEED, stratify_by_column="post_type")
+
+    result = DatasetDict(
         {
             "train": train_test["train"],
             "validation": val_test["train"],
             "test": val_test["test"],
         }
     )
+    for split_name in result:
+        rows = result[split_name].to_list()
+        for row in rows:
+            row["post_type"] = labels.int2str(row["post_type"])
+        result[split_name] = Dataset.from_list(rows)
+    return result
 
 
-def main() -> None:
+def main():
     print("Downloading/loading Kaggle dataset...")
     destinations = _load_destinations()
     print(f"Loaded {len(destinations)} destinations.")
 
     examples = build_examples(destinations)
     print(f"Built {len(examples)} fact-grounded examples "
-          f"(review/how_to per city + ranking per category).")
+          f"(review/how_to per city + ranking per category x top_n variant).")
 
     dataset_dict = split_dataset(examples)
     for split_name, split in dataset_dict.items():

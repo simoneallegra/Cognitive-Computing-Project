@@ -29,17 +29,17 @@ class KnowledgeGraph:
         )
         self._ensure_constraints()
 
-    def close(self) -> None:
+    def close(self):
         self.driver.close()
 
     def __enter__(self) -> "KnowledgeGraph":
         return self
 
-    def __exit__(self, *exc_info) -> None:
+    def __exit__(self, *exc_info):
         self.close()
 
     # --------------------------------- setup ---------------------------------
-    def _ensure_constraints(self) -> None:
+    def _ensure_constraints(self):
         constraints = [
             "CREATE CONSTRAINT post_id IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE",
             "CREATE CONSTRAINT topic_name IF NOT EXISTS FOR (t:Topic) REQUIRE t.name IS UNIQUE",
@@ -51,7 +51,7 @@ class KnowledgeGraph:
                 session.run(cypher)
 
     # -------------------------- writes (solo dopo approvazione) ---------------------------------
-    def add_post(self, post_id: str, title: str, post_type: str, summary: str = "") -> None:
+    def add_post(self, post_id: str, title: str, post_type: str, summary: str = ""):
         query = """
         MERGE (p:Post {id: $id})
         SET p.title = $title,
@@ -69,7 +69,7 @@ class KnowledgeGraph:
                 created_at=datetime.now(timezone.utc).isoformat(),
             )
 
-    def link_post_topic(self, post_id: str, topic: str) -> None:
+    def link_post_topic(self, post_id: str, topic: str):
         query = """
         MATCH (p:Post {id: $post_id})
         MERGE (t:Topic {name: $topic})
@@ -78,7 +78,7 @@ class KnowledgeGraph:
         with self.driver.session() as session:
             session.run(query, post_id=post_id, topic=topic)
 
-    def link_topics_related(self, topic_a: str, topic_b: str) -> None:
+    def link_topics_related(self, topic_a: str, topic_b: str):
         if topic_a == topic_b:
             return
         query = """
@@ -89,7 +89,7 @@ class KnowledgeGraph:
         with self.driver.session() as session:
             session.run(query, a=topic_a, b=topic_b)
 
-    def link_post_source(self, post_id: str, url: str, domain: str = "") -> None:
+    def link_post_source(self, post_id: str, url: str, domain: str = ""):
         query = """
         MATCH (p:Post {id: $post_id})
         MERGE (s:Source {url: $url})
@@ -99,7 +99,7 @@ class KnowledgeGraph:
         with self.driver.session() as session:
             session.run(query, post_id=post_id, url=url, domain=domain)
 
-    def add_claim(self, post_id: str, claim_id: str, text: str, source_url=None) -> None:
+    def add_claim(self, post_id: str, claim_id: str, text: str, source_url=None):
         query = """
         MATCH (p:Post {id: $post_id})
         MERGE (c:Claim {id: $claim_id})

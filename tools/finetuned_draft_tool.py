@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
+import config
 from tools._shared import get_finetuned_generator
 
 _TASK_INSTRUCTION = {
@@ -11,11 +12,42 @@ _TASK_INSTRUCTION = {
     "how_to": "Write a 'how to spend your time' travel guide post using ONLY the facts above.",
     "ranking": "Write a 'Top cities' ranking blog post using ONLY the facts above.",
 }
+_CITATION_MARKER = "(source: "
+_MAX_FACTS = 6
+
+
+def _clean_facts(facts: list[str]) -> list[str]:
+    """Rimuove il marcatore inline "(source: URL)" e tronca alla righe
+    piu' rilevanti: avvicina l'input alla forma pulita vista in training,
+    dove i fatti sono sempre poche righe ben formattate."""
+    cleaned = []
+    for fact in facts[:_MAX_FACTS]:
+        start = fact.find(_CITATION_MARKER)
+        if start == -1:
+            cleaned.append(fact)
+            continue
+        end = fact.find(")", start)
+        cleaned.append((fact[:start] + fact[end + 1 :]).strip() if end != -1 else fact)
+    return cleaned
+
+
+def _enforce_max_words(text: str, max_words: int) -> str:
+    """Applica config.MAX_POST_WORDS: tronca al limite editoriale e, se
+    possibile, rifinisce all'ultima frase completa invece di tagliare a
+    meta' parola."""
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    truncated = " ".join(words[:max_words])
+    last_sentence_end = max(truncated.rfind("."), truncated.rfind("!"), truncated.rfind("?"))
+    if last_sentence_end > len(truncated) // 2:
+        return truncated[: last_sentence_end + 1]
+    return truncated
 
 
 @tool
 def draft_with_finetuned_model(
-    topic: str, post_type: str, facts: list[str], max_new_tokens: int = 380
+    topic: str, post_type: str, facts: list[str], max_new_tokens: int = 180
 ) -> str:
     """Draft the body text of a blog post using the team's fine-tuned
     distilgpt2 model. Inputs: `topic`, `post_type` (how_to/review/ranking),
@@ -23,6 +55,7 @@ def draft_with_finetuned_model(
     this ONLY AFTER gathering and quality-checking the facts."""
     generator, tokenizer = get_finetuned_generator()
     instruction = _TASK_INSTRUCTION.get(post_type, _TASK_INSTRUCTION["review"])
+    facts = _clean_facts(facts) if facts else facts
     facts_block = "\n".join(facts) if facts else "(no facts provided)"
     prompt = f"Facts:\n{facts_block}\n\nTopic: {topic}\nTask: {instruction}"
     full_prompt = f"<PROMPT>\n{prompt}\n<RESP>\n"
@@ -31,17 +64,19 @@ def draft_with_finetuned_model(
         full_prompt,
         pipeline_kwargs={
             "max_new_tokens": max_new_tokens,
-            "min_new_tokens": min(180, max_new_tokens),
+            "min_new_tokens": min(80, max_new_tokens),
             "do_sample": True,
             "top_k": 50,
-            "temperature": 0.8,
-            "repetition_penalty": 1.3,
+            "top_p": 0.9,
+            "temperature": 0.7,
+            "repetition_penalty": 1.15,
             "no_repeat_ngram_size": 3,
             "pad_token_id": tokenizer.pad_token_id,
         },
     )
 
-    return output[len(full_prompt):].strip()
+    body = output[len(full_prompt):].strip()
+    return _enforce_max_words(body, config.MAX_POST_WORDS)
 
 
 if __name__ == "__main__":

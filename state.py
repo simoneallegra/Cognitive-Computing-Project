@@ -75,8 +75,7 @@ class BlogAgentState(TypedDict):
 
 
 def initial_state(n_posts: int) -> BlogAgentState:
-    """Stato iniziale vuoto, con un valore per ogni campo di BlogAgentState
-    (main.py ed evaluate_agent.py partono entrambi da qui)."""
+    """Stato iniziale vuoto, con un valore per ogni campo di BlogAgentState"""
     return {
         "user_input": f"Plan and draft {n_posts} travel blog posts.",
         "n_posts": n_posts,

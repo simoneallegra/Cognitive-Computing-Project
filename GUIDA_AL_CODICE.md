@@ -407,13 +407,13 @@ class KnowledgeGraph:
         )
         self._ensure_constraints()
 
-    def close(self) -> None:
+    def close(self):
         self.driver.close()
 
     def __enter__(self) -> "KnowledgeGraph":
         return self
 
-    def __exit__(self, *exc_info) -> None:
+    def __exit__(self, *exc_info):
         self.close()
 ```
 - Gli argomenti `uri`/`user`/`password` sono opzionali: se non passati,

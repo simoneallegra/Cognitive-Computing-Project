@@ -43,7 +43,7 @@ def update_knowledge_graph(
     related_topics=None,
     sources=None,
     facts=None,
-) -> None:
+):
     """Scrive il post nel KG. Chiamata solo da `update_kg`, mai dal LLM.
 
     `facts` e' la lista di RetrievedFact raccolta in gather_and_draft: ogni

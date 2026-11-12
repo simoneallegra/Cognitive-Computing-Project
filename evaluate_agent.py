@@ -131,7 +131,7 @@ def _report(analyses, failures, n_posts: int) -> str:
     )
 
 
-def main() -> None:
+def main():
     parser = argparse.ArgumentParser(description="Blogger Support Agent evaluation")
     parser.add_argument("--posts", type=int, default=3, help="Number of posts to plan, draft and evaluate.")
     args = parser.parse_args()

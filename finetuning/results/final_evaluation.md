@@ -2,39 +2,38 @@
 
 | Model | Perplexity | Grounding score | ROUGE-L |
 |---|---|---|---|
-| baseline_zero_shot_distilgpt2 | 30.91 | 0.000 | 0.000 |
-| legacy_finetuned_no_context | 1.84 | 0.185 | 0.170 |
-| finetuned_context_grounded (final tool model) | 1.27 | 0.349 | 0.495 |
+| baseline_zero_shot_distilgpt2 | 30.03 | 0.000 | 0.000 |
+| finetuned_context_grounded (final tool model) | 6.03 | 0.353 | 0.497 |
 
 ## Qualitative success example
 
 ### Failure case (best grounding score)
-- Topic: Nicosia (review)
-- Facts given: ['City: Nicosia, europe, Cyprus', 'Description: Wander through leafy streets where ancient history meets modern life, with a vibrant café culture and a warm, welcoming atmosphere.', 'Ideal durations: ["One week","Short trip","Weekend"]', 'Budget level: Mid-range', 'culture: 4/5', 'adventure: 3/5', 'nature: 3/5', 'beaches: 2/5', 'nightlife: 3/5', 'cuisine: 4/5', 'wellness: 3/5', 'urban: 4/5', 'seclusion: 2/5']
-- Grounding score: 0.46 | ROUGE-L: 0.48
-- Generated: 'Nicosia, europe — Cyprus\n\nWander through leafy streets where ancient history meets modern life, with a vibrant café culture and a warm, welcoming atmosphere.\n\nArriving in Nicosia means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The food scene is rich, with traditional dishes and quality v'
-- Reference: 'Nicosia, europe — Cyprus\n\nWander through leafy streets where ancient history meets modern life, with a vibrant café culture and a warm, welcoming atmosphere.\n\nArriving in Nicosia means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The food scene is rich, with traditional dishes and quality v'
+- Topic: Acapulco (review)
+- Facts given: ['City: Acapulco, north_america, Mexico', "Description: Golden beaches meet vibrant nightlife, where the sound of crashing waves and lively music create an atmosphere that's both thrilling and laid-back.", 'Ideal durations: ["Short trip","Weekend","One week"]', 'Budget level: Mid-range', 'culture: 3/5', 'adventure: 4/5', 'nature: 3/5', 'beaches: 4/5', 'nightlife: 4/5', 'cuisine: 4/5', 'wellness: 3/5', 'urban: 3/5', 'seclusion: 2/5']
+- Grounding score: 0.52 | ROUGE-L: 0.52
+- Generated: "Acapulco, north_america — Mexico\n\nGolden beaches meet vibrant nightlife, where the sound of crashing waves and lively music create an atmosphere that's both thrilling and laid-back.\n\nArriving in Acapulco means stepping into a destination that speaks for itself. Museums, monuments and local traditions offer a solid taste of cultural identity. The local cuisine is tasty and well worth trying.\n\nFor t"
+- Reference: "Acapulco, north_america — Mexico\n\nGolden beaches meet vibrant nightlife, where the sound of crashing waves and lively music create an atmosphere that's both thrilling and laid-back.\n\nArriving in Acapulco means stepping into a destination that speaks for itself. Museums, monuments and local traditions offer a solid taste of cultural identity. The food scene is rich, with traditional dishes and qual"
 
 
 ## Documented failure cases
 
 ### Failure case (failure case #1)
-- Topic: San Pedro de Atacama (review)
-- Facts given: ['City: San Pedro de Atacama, south_america, Chile', 'Description: Endless desert vistas meet surreal landscapes, where clear night skies reveal a tapestry of stars, creating an otherworldly sense of tranquility and wonder.', 'Ideal durations: ["One week","Short trip"]', 'Budget level: Mid-range', 'culture: 3/5', 'adventure: 5/5', 'nature: 5/5', 'beaches: 1/5', 'nightlife: 2/5', 'cuisine: 3/5', 'wellness: 3/5', 'urban: 2/5', 'seclusion: 5/5']
-- Grounding score: 0.30 | ROUGE-L: 0.44
-- Generated: 'San Pedro de Atacama, south_america — Chile\n\nEndless desert vistas meet surreal landscapes, where clear night skies reveal a tapestry of stars, creating an otherworldly sense of tranquility and wonder.\n\nArriving in San Pedro de Atacama means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The '
-- Reference: 'San Pedro de Atacama, south_america — Chile\n\nEndless desert vistas meet surreal landscapes, where clear night skies reveal a tapestry of stars, creating an otherworldly sense of tranquility and wonder.\n\nArriving in San Pedro de Atacama means stepping into a destination that speaks for itself. Museums, monuments and local traditions offer a solid taste of cultural identity. The local cuisine is tas'
+- Topic: Top 8 cities for urban (ranking)
+- Facts given: ['Category: urban', '1. Milan, Italy - urban: 5/5', '2. Amsterdam, Netherlands - urban: 5/5', '3. New York, United States - urban: 5/5', '4. Chicago, United States - urban: 5/5', '5. Seoul, South Korea - urban: 5/5', '6. Washington, United States - urban: 5/5', '7. Melbourne, Australia - urban: 5/5', '8. Toronto, Canada - urban: 5/5']
+- Grounding score: 0.08 | ROUGE-L: 0.42
+- Generated: 'Top 8 Cities for City Life\n\nLooking for the best places to experience city life? Here are the top 8 destinations that deliver, ranked by how well they score on it.\n\n---\n\n1. **Dubai** — Dubai, United Arab Emirates\nScore: 5/5 — A true metropolis full of adventure and movement. Budget level: "Mid-range".\n\n2. **Dubai** — Dubai, United Arab Emirates\nScore: 5/5 — A true metropolis full of adventure and '
+- Reference: 'Top 8 Cities for City Life\n\nLooking for the best places to experience city life? Here are the top 8 destinations that deliver, ranked by how well they score on it.\n\n---\n\n1. **Vancouver** — Vancouver, north_america, Canada\nScore: 5/5 — Full-blown metropolis energy, fast-paced and dense. Budget level: "Luxury".\n\n2. **Barcelona** — Barcelona, europe, Spain\nScore: 5/5 — Full-blown metropolis energy, f'
 
 ### Failure case (failure case #2)
-- Topic: Koh Lanta (review)
-- Facts given: ['City: Koh Lanta, asia, Thailand', 'Description: Golden beaches, gentle waves, and lush greenery create a serene escape where you can unwind and soak in the tranquil island vibe.', 'Ideal durations: ["Weekend","One week","Short trip"]', 'Budget level: Budget', 'culture: 3/5', 'adventure: 4/5', 'nature: 4/5', 'beaches: 5/5', 'nightlife: 3/5', 'cuisine: 4/5', 'wellness: 4/5', 'urban: 2/5', 'seclusion: 4/5']
-- Grounding score: 0.31 | ROUGE-L: 0.44
-- Generated: 'Koh Lanta, asia — Thailand\n\nGolden beaches, gentle waves, and lush greenery create a serene escape where you can unwind and soak in the tranquil island vibe.\n\nArriving in Koh Lanta means stepping into a destination that speaks for itself. Koh Lanta is a concentrate of history, art and identity: every street tells a story, and the cultural heritage is simply overwhelming. The food scene is rich, wi'
-- Reference: 'Koh Lanta, asia — Thailand\n\nGolden beaches, gentle waves, and lush greenery create a serene escape where you can unwind and soak in the tranquil island vibe.\n\nArriving in Koh Lanta means stepping into a destination that speaks for itself. Museums, monuments and local traditions offer a solid taste of cultural identity. The food scene is rich, with traditional dishes and quality venues.\n\nFor those '
+- Topic: Blantyre (review)
+- Facts given: ['City: Blantyre, africa, Malawi', 'Description: A city where bustling markets, friendly locals, and the aroma of street food create a vibrant and welcoming atmosphere.', 'Ideal durations: ["Short trip","Weekend"]', 'Budget level: Budget', 'culture: 3/5', 'adventure: 3/5', 'nature: 4/5', 'beaches: 1/5', 'nightlife: 2/5', 'cuisine: 3/5', 'wellness: 2/5', 'urban: 3/5', 'seclusion: 4/5']
+- Grounding score: 0.24 | ROUGE-L: 0.52
+- Generated: 'Blantyre, africa — Malawi\n\nA city where bustling markets, friendly locals, and the aroma of street food create a vibrant and welcoming atmosphere.\n\nArriving in Blantyre means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The food scene is rich, with traditional dishes and quality venues.\n\nFo'
+- Reference: 'Blantyre, africa — Malawi\n\nA city where bustling markets, friendly locals, and the aroma of street food create a vibrant and welcoming atmosphere.\n\nArriving in Blantyre means stepping into a destination that speaks for itself. Museums, monuments and local traditions offer a solid taste of cultural identity. The local cuisine is tasty and well worth trying.\n\nFor those seeking excitement and movemen'
 
 ### Failure case (failure case #3)
-- Topic: Siem Reap (review)
-- Facts given: ['City: Siem Reap, asia, Cambodia', 'Description: Ancient temples rise through the jungle mist, while bustling markets and vibrant street food create a lively, sensory-rich experience.', 'Ideal durations: ["Short trip","Weekend","One week"]', 'Budget level: Budget', 'culture: 5/5', 'adventure: 3/5', 'nature: 4/5', 'beaches: 1/5', 'nightlife: 3/5', 'cuisine: 4/5', 'wellness: 3/5', 'urban: 3/5', 'seclusion: 3/5']
-- Grounding score: 0.38 | ROUGE-L: 0.41
-- Generated: 'Siem Reap, asia — Cambodia\n\nAncient temples rise through the jungle mist, while bustling markets and vibrant street food create a lively, sensory-rich experience.\n\nArriving in Siem Reap means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The food scene is rich, with traditional dishes and qu'
-- Reference: 'Siem Reap, asia — Cambodia\n\nAncient temples rise through the jungle mist, while bustling markets and vibrant street food create a lively, sensory-rich experience.\n\nArriving in Siem Reap means stepping into a destination that speaks for itself. Siem Reap is a concentrate of history, art and identity: every street tells a story, and the cultural heritage is simply overwhelming. The food scene is ric'
+- Topic: Asturias (review)
+- Facts given: ['City: Asturias, europe, Spain', 'Description: Lush green landscapes meet rugged coastlines, offering a sense of tranquility and adventure with every breathtaking vista and charming village.', 'Ideal durations: ["One week","Short trip"]', 'Budget level: Mid-range', 'culture: 4/5', 'adventure: 4/5', 'nature: 5/5', 'beaches: 4/5', 'nightlife: 3/5', 'cuisine: 4/5', 'wellness: 3/5', 'urban: 2/5', 'seclusion: 4/5']
+- Grounding score: 0.32 | ROUGE-L: 0.36
+- Generated: 'Asturias, europe — Spain\n\nLush green landscapes meet rugged coastlines, offering a sense of tranquility and adventure with every breathtaking vista and charming village.\n\nArriving in Asturias means stepping into a destination that speaks for itself. Asturias is a concentrate of history, art and identity: every street tells a story, and the cultural heritage is simply overwhelming. The cuisine in A'
+- Reference: 'Asturias, europe — Spain\n\nLush green landscapes meet rugged coastlines, offering a sense of tranquility and adventure with every breathtaking vista and charming village.\n\nArriving in Asturias means stepping into a destination that speaks for itself. History and art permeate every corner of the city, from museums to architecture to living traditions. The food scene is rich, with traditional dishes '

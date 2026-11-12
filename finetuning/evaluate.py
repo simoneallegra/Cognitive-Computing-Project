@@ -121,7 +121,7 @@ def _format_failure_case(record: dict, reason: str) -> str:
     )
 
 
-def main() -> None:
+def main():
     dataset_dict = load_from_disk(str(config.FT_DATA_DIR / "context_grounded_dataset"))
     test_rows = dataset_dict["test"]
 

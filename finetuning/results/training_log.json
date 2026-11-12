@@ -3,8 +3,8 @@
     "config": {
       "name": "baseline_zero_shot"
     },
-    "eval_loss": 3.2948524951934814,
-    "perplexity": 26.973435065125443,
+    "eval_loss": 3.279449939727783,
+    "perplexity": 26.56115844283788,
     "grounding_score": 0.0
   },
   "sweep": [
@@ -13,50 +13,68 @@
         "learning_rate": 5e-05,
         "num_train_epochs": 3
       },
-      "eval_loss": 0.27720949053764343,
-      "perplexity": 1.3194427528559456,
-      "grounding_score": 0.3200914427849412
+      "eval_loss": 0.28326040506362915,
+      "perplexity": 1.3274507917211982,
+      "grounding_score": 0.27591495325941034
     },
     {
       "config": {
         "learning_rate": 5e-05,
         "num_train_epochs": 5
       },
-      "eval_loss": 0.12225038558244705,
-      "perplexity": 1.1300370113358738,
-      "grounding_score": 0.3046894763303432
+      "eval_loss": 0.11489742249250412,
+      "perplexity": 1.121758364493042,
+      "grounding_score": 0.290118249962707
+    },
+    {
+      "config": {
+        "learning_rate": 5e-05,
+        "num_train_epochs": 8
+      },
+      "eval_loss": 0.0740395113825798,
+      "perplexity": 1.0768493524624156,
+      "grounding_score": 0.27223363457809163
     },
     {
       "config": {
         "learning_rate": 0.0001,
         "num_train_epochs": 3
       },
-      "eval_loss": 0.11468113213777542,
-      "perplexity": 1.1215157652153538,
-      "grounding_score": 0.2921894763303432
+      "eval_loss": 0.10997513681650162,
+      "perplexity": 1.1162503165773967,
+      "grounding_score": 0.27380603276813686
     },
     {
       "config": {
         "learning_rate": 0.0001,
         "num_train_epochs": 5
       },
-      "eval_loss": 0.07410876452922821,
-      "perplexity": 1.0769239302508833,
-      "grounding_score": 0.3032754491810219
+      "eval_loss": 0.06842152774333954,
+      "perplexity": 1.070816592259441,
+      "grounding_score": 0.2919443650241162
+    },
+    {
+      "config": {
+        "learning_rate": 0.0001,
+        "num_train_epochs": 8
+      },
+      "eval_loss": 0.052541036158800125,
+      "perplexity": 1.053945811078815,
+      "grounding_score": 0.27583253567699273
     }
   ],
   "best_config": {
     "learning_rate": 0.0001,
-    "num_train_epochs": 5
+    "num_train_epochs": 8
   },
   "final_model_validation": {
     "config": {
       "learning_rate": 0.0001,
-      "num_train_epochs": 5
+      "num_train_epochs": 8
     },
-    "eval_loss": 0.07411622256040573,
-    "perplexity": 1.0769319620130815,
-    "grounding_score": 0.3032754491810219
+    "eval_loss": 0.05251144990324974,
+    "perplexity": 1.0539146292299915,
+    "grounding_score": 0.27583253567699273
   },
   "final_model_dir": "/home/sallegra/progetto/finetuning/saved_models/distilgpt2_context_grounded"
 }

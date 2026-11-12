@@ -33,8 +33,10 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 HYPERPARAM_GRID = [
     {"learning_rate": 5e-5, "num_train_epochs": 3},
     {"learning_rate": 5e-5, "num_train_epochs": 5},
+    {"learning_rate": 5e-5, "num_train_epochs": 8},
     {"learning_rate": 1e-4, "num_train_epochs": 3},
     {"learning_rate": 1e-4, "num_train_epochs": 5},
+    {"learning_rate": 1e-4, "num_train_epochs": 8},
 ]
 N_GROUNDING_SAMPLES = 20
 
@@ -199,7 +201,7 @@ def run_config(hp: dict, tokenized, raw_validation, save_dir=None):
     return result, model, tokenizer
 
 
-def main() -> None:
+def main():
     config.FT_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(config.FINETUNE_BASE_MODEL)
     if tokenizer.pad_token is None:

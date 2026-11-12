@@ -26,8 +26,8 @@ from tools import REACT_TOOLS, draft_with_finetuned_model, update_knowledge_grap
 from tools._shared import get_kg
 
 TOOLS_BY_NAME = {}
-for _t in REACT_TOOLS:
-    TOOLS_BY_NAME[_t.name] = _t
+for t in REACT_TOOLS:
+    TOOLS_BY_NAME[t.name] = t
 
 MAX_REACT_STEPS = 10
 _CITATION_MARKER = "(source: "
